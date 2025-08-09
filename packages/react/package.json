@@ -1,0 +1,36 @@
+{
+  "name": "@pegboard/react",
+  "version": "1.0.0",
+  "description": "React wrapper for Pegboard - Grid-based WYSIWYG editor",
+  "main": "dist/index.js",
+  "module": "dist/index.esm.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.esm.js",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "node build.js",
+    "dev": "node build.js --watch",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@pegboard/core": "workspace:*"
+  },
+  "peerDependencies": {
+    "react": "^16.8.0 || ^17.0.0 || ^18.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.0.0",
+    "esbuild": "^0.19.0",
+    "react": "^18.0.0",
+    "typescript": "^5.0.0"
+  },
+  "keywords": ["react", "editor", "wysiwyg", "grid"],
+  "author": "Your Name",
+  "license": "MIT"
+}

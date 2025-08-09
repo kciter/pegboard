@@ -1,0 +1,26 @@
+html, body, #root { height:100%; margin:0; font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen; }
+body { background:#f8f9fa; color:#222; }
+.app-shell { display:grid; grid-template-columns: 1fr 260px; grid-template-rows:auto 1fr; gap:0; height:100vh; }
+header { grid-column:1 / span 2; padding:12px 16px; background:#ffffff; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid #ddd; box-shadow:0 1px 2px rgba(0,0,0,0.04); }
+header h1 { font-size:16px; margin:0; font-weight:600; color:#222; }
+.controls { display:flex; gap:8px; align-items:center; }
+.controls button { background:#ffffff; color:#222; border:1px solid #ccc; padding:6px 12px; border-radius:4px; cursor:pointer; font-size:13px; box-shadow:0 1px 2px rgba(0,0,0,0.04); }
+.controls button:hover { background:#f0f0f0; }
+.board-wrapper { position:relative; padding:12px; overflow:auto; background:linear-gradient(180deg,#fff,#fafafa); }
+.pegboard-container { background:#fafafa; border:1px solid #ddd; border-radius:6px; min-height:600px; }
+.demo-board { padding:8px; }
+.sidebar { border-left:1px solid #e0e0e0; background:#f9f9f9; padding:12px; overflow:auto; }
+.sidebar h3 { margin-top:0; font-size:14px; color:#333; }
+.sidebar ul { list-style:none; padding:0; margin:0; font-size:12px; line-height:1.4; }
+.sidebar li { padding:2px 0; color:#444; }
+.demo-block { width:100%; height:100%; display:flex; align-items:center; justify-content:center; font-size:12px; border:1px solid #ddd; border-radius:4px; background:#fff; box-sizing:border-box; color:#333; }
+.text-block { color:#333; }
+.color-block { color:#fff; font-weight:600; text-shadow:0 1px 1px rgba(0,0,0,0.2); }
+/* Resize handles styling */
+.pegboard-block { transition: box-shadow .15s, background .2s; }
+.pegboard-block:hover { box-shadow:0 0 0 2px #c7defc inset; }
+.pegboard-block .resize-handle { background:#bbb; opacity:0; transition:opacity .15s; }
+.pegboard-block:hover .resize-handle { opacity:1; }
+.pegboard-block-dragging { opacity: 0.6; }
+.pegboard-block-resizing { opacity: 0.75; }
+.pegboard-hint-overlay { transition: border-color 0.12s ease, background 0.12s ease; }

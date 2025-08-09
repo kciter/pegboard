@@ -1,0 +1,28 @@
+{
+  "name": "@pegboard/core",
+  "version": "1.0.0",
+  "description": "Pegboard core library - Vanilla JavaScript grid-based WYSIWYG editor",
+  "main": "dist/index.js",
+  "module": "dist/index.esm.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.esm.js",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "node build.js",
+    "dev": "node build.js --watch",
+    "clean": "rm -rf dist"
+  },
+  "devDependencies": {
+    "esbuild": "^0.19.0",
+    "typescript": "^5.0.0"
+  },
+  "keywords": ["editor", "wysiwyg", "grid", "vanilla-js"],
+  "author": "Your Name",
+  "license": "MIT"
+}
