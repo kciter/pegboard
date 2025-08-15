@@ -1,0 +1,33 @@
+{
+  "name": "@pegboard/storybook",
+  "private": true,
+  "scripts": {
+    "lint": "eslint --max-warnings 0 .",
+    "dev": "storybook dev -p 6006",
+    "build": "storybook build",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@pegboard/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@chromatic-com/storybook": "^3.2.6",
+    "@pegboard/eslint-config": "workspace:*",
+    "@pegboard/typescript-config": "workspace:*",
+    "@storybook/addon-essentials": "^8.6.14",
+    "@storybook/addon-interactions": "^8.6.14",
+    "@storybook/blocks": "^8.6.14",
+    "@storybook/html": "^8.6.14",
+    "@storybook/html-vite": "^8.6.14",
+    "@storybook/test": "^8.6.14",
+    "eslint": "^9.18.0",
+    "storybook": "^8.6.14",
+    "typescript": "^5.7.3",
+    "vite": "^6.3.5"
+  },
+  "eslintConfig": {
+    "extends": [
+      "plugin:storybook/recommended"
+    ]
+  }
+}

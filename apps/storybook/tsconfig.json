@@ -1,0 +1,5 @@
+{
+  "extends": "@pegboard/typescript-config/library.json",
+  "include": ["src", "index.d.ts"],
+  "exclude": ["node_modules", "dist"]
+}
