@@ -50,6 +50,7 @@ export interface PegboardConfig {
   lassoSelection?: boolean; // 라쏘 선택 허용 여부(기본 false)
   keyboardMove?: boolean; // 방향키 이동 허용 여부(기본 true)
   keyboardDelete?: boolean; // Delete/Backspace 삭제 허용 여부(기본 false)
+  autoGrowRows?: boolean; // true면 컨텐츠 최하단에 맞춰 rows 자동 증감(초기 rows는 minRows)
 }
 
 export interface DragState {

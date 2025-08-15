@@ -48,6 +48,8 @@ export class DragManager extends EventEmitter {
     private getKeyboardMove?: () => boolean,
     private getKeyboardDelete?: () => boolean,
     private onDeleteSelected?: (ids: string[]) => void,
+    private getAutoGrowRows?: () => boolean,
+    private requestGrowRows?: (rows: number) => void,
   ) {
     super();
     this.setupEventListeners();
@@ -450,8 +452,10 @@ export class DragManager extends EventEmitter {
     const minLeft = paddingLeft;
     const minTop = paddingTop;
     const maxLeft = paddingLeft + Math.max(0, innerWidth - blockPixelWidth);
-    // rows 미설정 시 세로는 상단만 클램핑 (컨테이너 높이가 가변일 수 있음)
-    const hasRowCap = !!config.rows && config.rows > 0;
+
+    const autoGrow = this.getAutoGrowRows ? !!this.getAutoGrowRows() : false;
+    // rows 상한 클램프 제거(자동 증가 모드)
+    const hasRowCap = !!config.rows && config.rows > 0 && !autoGrow;
     const maxTop = hasRowCap ? paddingTop + Math.max(0, innerHeight - blockPixelHeight) : Infinity;
 
     rawLeft = Math.max(minLeft, Math.min(maxLeft, rawLeft));
@@ -500,6 +504,15 @@ export class DragManager extends EventEmitter {
       zIndex: this.startPosition.zIndex,
     };
 
+    // 자동 증가 모드: 필요한 경우 rows를 즉시 늘림(컨테이너 높이 업데이트)
+    if (autoGrow) {
+      const requiredBottom = candidate.y + anchorSize.height - 1;
+      const currentRows = config.rows || 0;
+      if (requiredBottom > currentRows) {
+        this.requestGrowRows && this.requestGrowRows(requiredBottom);
+      }
+    }
+
     const allowOverlap = this.getAllowOverlap ? this.getAllowOverlap() : false;
     const dragReflow = this.getDragReflow ? this.getDragReflow() : 'none';
 
@@ -515,6 +528,7 @@ export class DragManager extends EventEmitter {
       const othersNonSelected = allBlocksData.filter((b) => !this.selection.has(b.id));
       let groupValid = true;
       const nextPositions = new Map<string, GridPosition>();
+      let groupRequiredBottom = 0;
       for (const id of this.selection) {
         const b = this.getBlock(id);
         if (!b) continue;
@@ -526,6 +540,7 @@ export class DragManager extends EventEmitter {
           y: Math.max(1, startPos.y + deltaRow),
           zIndex: startPos.zIndex,
         };
+        groupRequiredBottom = Math.max(groupRequiredBottom, targetPos.y + d.size.height - 1);
         // 충돌 체크: 비선택 블럭 + 선택 중 immovable 블럭과 충돌 금지
         const others = [...othersNonSelected, ...immovableSelected];
         const collidesWithOthers =
@@ -536,6 +551,9 @@ export class DragManager extends EventEmitter {
           break;
         }
         nextPositions.set(id, targetPos);
+      }
+      if (autoGrow && groupRequiredBottom > (this.grid.getConfig().rows || 0)) {
+        this.requestGrowRows && this.requestGrowRows(groupRequiredBottom);
       }
       this.pendingGroupMovePositions = groupValid ? nextPositions : null;
       // 힌트는 anchor 기준으로만 표시하되, groupValid 로 색 결정
@@ -613,7 +631,12 @@ export class DragManager extends EventEmitter {
     if (strategy === 'none') return null;
 
     const config = this.grid.getConfig();
-    const maxRows = config.rows && config.rows > 0 ? (config.rows as number) : 1000;
+    const allowDeep = this.getAutoGrowRows ? !!this.getAutoGrowRows() : false;
+    const maxRows = allowDeep
+      ? 1000
+      : config.rows && config.rows > 0
+        ? (config.rows as number)
+        : 1000;
 
     // 배치된 블록 목록(충돌 검사용)
     const placed: { id: string; position: GridPosition; size: GridSize }[] = [

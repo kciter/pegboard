@@ -23,6 +23,8 @@ export class Pegboard extends EventEmitter {
   private lassoSelection: boolean = false;
   private keyboardMove: boolean = true;
   private keyboardDelete: boolean = false;
+  private autoGrowRows: boolean = false; // 새 옵션
+  private minRows: number | undefined; // 초기 rows를 최소값으로 보관
 
   constructor(config: CoreTypes.PegboardConfig) {
     super();
@@ -38,10 +40,18 @@ export class Pegboard extends EventEmitter {
     this.lassoSelection = config.lassoSelection ?? false;
     this.keyboardMove = config.keyboardMove ?? false;
     this.keyboardDelete = config.keyboardDelete ?? false;
+    this.autoGrowRows = config.autoGrowRows ?? false;
+    this.minRows = config.grid.rows; // 지정되었으면 최소로 기억
+
+    // autoGrowRows일 때는 검증 단계에서 rows 상한을 넘는 배치도 임시 허용하도록 Grid에 힌트
+    (this.grid as any).setUnboundedRows?.(this.autoGrowRows);
 
     this.setupContainer();
     this.setupDragManager();
     this.setEditable(config.editable ?? true);
+
+    // 초기 rows 자동 보정(초기 블록이 있다면)
+    this.recomputeRowsIfNeeded();
   }
 
   private setupContainer(): void {
@@ -72,16 +82,30 @@ export class Pegboard extends EventEmitter {
       () => this.keyboardMove,
       () => this.keyboardDelete,
       (ids: string[]) => ids.forEach((id) => this.removeBlock(id)),
+      () => this.autoGrowRows,
+      (rows: number) => {
+        if (!this.autoGrowRows) return;
+        const cfg = this.grid.getConfig();
+        const next = Math.max(rows | 0, this.minRows || 0);
+        if (!cfg.rows || cfg.rows < next) {
+          this.grid.updateConfig({ rows: next });
+          this.grid.applyGridStyles(this.container);
+          this.emit('grid:changed', { grid: this.grid.getConfig() });
+        }
+      },
     );
 
     this.dragManager.on('block:moved', ({ block, oldPosition }) => {
       this.emit('block:moved', { block, oldPosition });
       // 드롭 후 자동 정렬
       this.autoArrangeIfNeeded();
+      // 행 자동 증감
+      this.recomputeRowsIfNeeded();
     });
 
     this.dragManager.on('block:resized', ({ block, oldSize }) => {
       this.emit('block:resized', { block, oldSize });
+      this.recomputeRowsIfNeeded();
     });
     this.dragManager.on('block:selected', ({ block }) => {
       this.emit('block:selected', { block });
@@ -136,6 +160,9 @@ export class Pegboard extends EventEmitter {
       if (to.x === d.position.x && to.y === d.position.y) return;
       this.flipMove(b, to, duration);
     });
+
+    // 자동 정렬 후 rows 재계산
+    this.recomputeRowsIfNeeded();
   }
 
   private flipMove(block: Block, to: CoreTypes.GridPosition, duration: number) {
@@ -354,6 +381,8 @@ export class Pegboard extends EventEmitter {
     this.emit('block:added', { block: blockData });
     // 자동 정렬 모드에서는 블록 추가 시에도 패킹
     this.autoArrangeIfNeeded();
+    // rows 자동 재계산
+    this.recomputeRowsIfNeeded();
     return blockData.id;
   }
 
@@ -375,6 +404,7 @@ export class Pegboard extends EventEmitter {
 
     this.emit('block:removed', { blockId: id });
     this.autoArrangeIfNeeded();
+    this.recomputeRowsIfNeeded();
     return true;
   }
 
@@ -453,6 +483,7 @@ export class Pegboard extends EventEmitter {
     this.emit('block:updated', { block: newData });
     if (updates.position || updates.size) {
       this.autoArrangeIfNeeded();
+      this.recomputeRowsIfNeeded();
     }
     return true;
   }
@@ -526,11 +557,16 @@ export class Pegboard extends EventEmitter {
 
   setGridConfig(config: Partial<CoreTypes.GridConfig>): void {
     this.grid.updateConfig(config);
+    // autoGrowRows 상태 유지 반영
+    (this.grid as any).setUnboundedRows?.(this.autoGrowRows);
     this.grid.applyGridStyles(this.container);
 
     if (this.editable) {
       this.showGridLines();
     }
+
+    // grid 변경 후에도 자동 rows 보정
+    this.recomputeRowsIfNeeded();
 
     this.emit('grid:changed', { grid: this.grid.getConfig() });
   }
@@ -595,10 +631,15 @@ export class Pegboard extends EventEmitter {
     // nextZIndex 재계산: 현재 블록들 중 최대값 + 1
     const maxZ = this.getAllBlocks().reduce((m, d) => Math.max(m, d.position.zIndex), 0);
     (this as any).nextZIndex = Math.max(this.nextZIndex, maxZ + 1);
+
+    // import 후 rows 재계산
+    this.recomputeRowsIfNeeded();
   }
 
   clear(): void {
     this.blocks.forEach((_, id) => this.removeBlock(id));
+    // clear 후에도 최소 rows 유지
+    this.recomputeRowsIfNeeded();
   }
 
   bringToFront(id: string): boolean {
@@ -816,5 +857,26 @@ export class Pegboard extends EventEmitter {
       'pegboard-editor-mode',
       'pegboard-viewer-mode',
     );
+  }
+
+  // 새 기능: 블록 하단에 맞춰 rows 자동 증감
+  private recomputeRowsIfNeeded(): void {
+    if (!this.autoGrowRows) return;
+    const cfg = this.grid.getConfig();
+    const minRows = this.minRows && this.minRows > 0 ? this.minRows : cfg.rows || 0;
+
+    // 모든 블록의 y + height - 1 의 최대값을 계산
+    let bottom = 0;
+    for (const b of this.blocks.values()) {
+      const d = b.getData();
+      bottom = Math.max(bottom, d.position.y + d.size.height - 1);
+    }
+
+    const desired = Math.max(minRows || 0, bottom);
+    if (!cfg.rows || cfg.rows !== desired) {
+      this.grid.updateConfig({ rows: desired });
+      this.grid.applyGridStyles(this.container);
+      this.emit('grid:changed', { grid: this.grid.getConfig() });
+    }
   }
 }

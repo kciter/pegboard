@@ -69,7 +69,7 @@ export const UpdateAttributes: StoryObj = {
 
     const pegboard = new Pegboard({
       container,
-      grid: { columns: 12, rows: 10, rowHeight: 60, gap: 8 },
+      grid: { columns: 12, rows: 8, rowHeight: 60, gap: 8 },
       editable: true,
       allowOverlap: false,
       autoArrange: false,

@@ -3,6 +3,12 @@ import { GridConfig, Position, GridPosition, GridSize } from './types';
 export class Grid {
   constructor(private config: GridConfig) {}
 
+  private unboundedRows = false;
+
+  setUnboundedRows(enabled: boolean) {
+    this.unboundedRows = !!enabled;
+  }
+
   getConfig(): GridConfig {
     return { ...this.config };
   }
@@ -87,10 +93,10 @@ export class Grid {
 
   isValidGridPosition(position: GridPosition, size: GridSize): boolean {
     const withinColumns = position.x >= 1 && position.x + size.width - 1 <= this.config.columns;
-    const hasRowCap = !!this.config.rows && this.config.rows > 0;
+    const hasRowCap = !!this.config.rows && this.config.rows > 0 && !this.unboundedRows;
     const withinRows = hasRowCap
       ? position.y >= 1 && position.y + size.height - 1 <= (this.config.rows as number)
-      : position.y >= 1; // rows 미지정 시 하한만 체크
+      : position.y >= 1; // rows 미지정 시 하한만 체크(또는 unboundedRows=true)
     return withinColumns && withinRows;
   }
 
@@ -152,15 +158,14 @@ export class Grid {
       size: GridSize;
     }[],
   ): GridPosition {
-    const maxRows = this.config.rows && this.config.rows > 0 ? this.config.rows : 100;
-    for (let row = 1; row <= (maxRows as number); row++) {
+    const capped = !!this.config.rows && this.config.rows > 0 && !this.unboundedRows;
+    const searchMaxRows = capped ? (this.config.rows as number) : 1000; // 넉넉히 검색
+    for (let row = 1; row <= searchMaxRows; row++) {
       for (let column = 1; column <= this.config.columns - size.width + 1; column++) {
         const position: GridPosition = { x: column, y: row, zIndex: 1 };
 
-        if (
-          (!this.config.rows || row + size.height - 1 <= (this.config.rows as number)) &&
-          !this.checkGridCollision(position, size, '', existingBlocks)
-        ) {
+        const withinRowBound = !capped || row + size.height - 1 <= (this.config.rows as number);
+        if (withinRowBound && !this.checkGridCollision(position, size, '', existingBlocks)) {
           return position;
         }
       }
