@@ -187,6 +187,45 @@ export class Pegboard extends EventEmitter {
     this.arrangeAnimationMs = Math.max(0, ms | 0);
   }
 
+  // 요청 위치 주변에서 가장 가까운 유효한 위치 탐색(없으면 null)
+  private findNearestAvailablePosition(
+    start: CoreTypes.GridPosition,
+    size: CoreTypes.GridSize,
+    existingBlocks: { id: string; position: CoreTypes.GridPosition; size: CoreTypes.GridSize }[],
+  ): CoreTypes.GridPosition | null {
+    const cfg = this.grid.getConfig();
+    const maxRows = cfg.rows && cfg.rows > 0 ? cfg.rows : 100;
+
+    const isFree = (pos: CoreTypes.GridPosition) => {
+      return (
+        this.grid.isValidGridPosition(pos, size) &&
+        !this.grid.checkGridCollision(pos, size, '', existingBlocks)
+      );
+    };
+
+    // r=0은 시작점
+    if (isFree(start)) return { x: start.x, y: start.y, zIndex: 1 };
+
+    const maxRadius = (cfg.columns + (maxRows as number)) * 2; // 충분히 큰 탐색 반경
+    for (let r = 1; r <= maxRadius; r++) {
+      // 상하 라인 스캔
+      for (let dx = -r; dx <= r; dx++) {
+        const top: CoreTypes.GridPosition = { x: start.x + dx, y: start.y - r, zIndex: 1 };
+        const bottom: CoreTypes.GridPosition = { x: start.x + dx, y: start.y + r, zIndex: 1 };
+        if (isFree(top)) return top;
+        if (isFree(bottom)) return bottom;
+      }
+      // 좌우 라인 스캔 (코너 중복 제외 위해 dy는 -r+1..r-1)
+      for (let dy = -r + 1; dy <= r - 1; dy++) {
+        const left: CoreTypes.GridPosition = { x: start.x - r, y: start.y + dy, zIndex: 1 };
+        const right: CoreTypes.GridPosition = { x: start.x + r, y: start.y + dy, zIndex: 1 };
+        if (isFree(left)) return left;
+        if (isFree(right)) return right;
+      }
+    }
+    return null;
+  }
+
   addBlock(data: Partial<CoreTypes.BlockData>): string {
     const plugin = this.plugins.get(data.type || 'default');
     if (!plugin && data.type && data.type !== 'default') {
@@ -213,19 +252,75 @@ export class Pegboard extends EventEmitter {
       clampedSize.width = clamp(clampedSize.width, layout.minWidth, layout.maxWidth);
       clampedSize.height = clamp(clampedSize.height, layout.minHeight, layout.maxHeight);
     }
-    const position =
-      data.position ||
-      (layout
+
+    // 요청된/기본 시작 위치 결정
+    const requestedPosition: CoreTypes.GridPosition | null = data.position
+      ? { x: data.position.x, y: data.position.y, zIndex: data.position.zIndex ?? this.nextZIndex }
+      : layout
         ? { x: layout.x, y: layout.y, zIndex: this.nextZIndex }
-        : this.grid.findAvailablePosition(clampedSize, existingBlocks));
+        : null;
+
+    let finalPosition: CoreTypes.GridPosition;
+
+    if (requestedPosition) {
+      if (this.allowOverlap) {
+        // 중첩 허용이면 그대로 배치(경계는 isValidGridPosition으로만 확인)
+        if (!this.grid.isValidGridPosition(requestedPosition, clampedSize)) {
+          // 요청 위치가 유효하지 않으면 주변 탐색
+          const near = this.findNearestAvailablePosition(
+            requestedPosition,
+            clampedSize,
+            existingBlocks,
+          );
+          if (!near) throw new Error('No available position');
+          finalPosition = near;
+        } else {
+          finalPosition = requestedPosition;
+        }
+      } else {
+        const noCollision =
+          this.grid.isValidGridPosition(requestedPosition, clampedSize) &&
+          !this.grid.checkGridCollision(requestedPosition, clampedSize, '', existingBlocks);
+        if (noCollision) {
+          finalPosition = requestedPosition;
+        } else {
+          const near = this.findNearestAvailablePosition(
+            requestedPosition,
+            clampedSize,
+            existingBlocks,
+          );
+          if (!near) throw new Error('No available position');
+          finalPosition = near;
+        }
+      }
+    } else {
+      // 요청 위치가 없으면, layout이 없을 경우 일반적 빈칸 탐색
+      const startPos = layout ? { x: layout.x, y: layout.y, zIndex: this.nextZIndex } : null;
+      if (startPos) {
+        const canUseStart =
+          (this.allowOverlap ||
+            !this.grid.checkGridCollision(startPos, clampedSize, '', existingBlocks)) &&
+          this.grid.isValidGridPosition(startPos, clampedSize);
+        if (canUseStart) {
+          finalPosition = startPos;
+        } else {
+          const near = this.findNearestAvailablePosition(startPos, clampedSize, existingBlocks);
+          if (!near) throw new Error('No available position');
+          finalPosition = near;
+        }
+      } else {
+        const pos = this.grid.findAvailablePosition(clampedSize, existingBlocks);
+        finalPosition = { x: pos.x, y: pos.y, zIndex: this.nextZIndex };
+      }
+    }
 
     const blockData: CoreTypes.BlockData = {
       id: data.id || generateId(),
       type: data.type || 'default',
       position: {
-        x: position.x,
-        y: position.y,
-        zIndex: position.zIndex ?? this.nextZIndex++,
+        x: finalPosition.x,
+        y: finalPosition.y,
+        zIndex: finalPosition.zIndex ?? this.nextZIndex++,
       },
       size: clampedSize,
       attributes: { ...(plugin?.defaultAttributes || {}), ...(data.attributes || {}) },
