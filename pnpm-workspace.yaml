@@ -1,5 +1,4 @@
 packages:
-  - 'packages/core'
-  - 'packages/react'
-  - 'apps/*'
-  - 'docs'
+  - "apps/**"
+  - "packages/**"
+  - "internals/**"
