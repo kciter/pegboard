@@ -13,7 +13,6 @@ export const Basic: Story = {
   render: () => {
     const root = document.createElement('div');
     root.style.width = '100%';
-    root.style.height = '600px';
 
     const boardHost = document.createElement('div');
     boardHost.style.height = '100%';

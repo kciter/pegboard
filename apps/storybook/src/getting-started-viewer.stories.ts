@@ -2,46 +2,34 @@ import type { Meta, StoryObj } from '@storybook/html';
 import { Pegboard } from '@pegboard/core';
 import { BoxBlock } from './blocks/box-block';
 
-const meta: Meta = {
-  title: 'Getting Started/Viewer Mode',
+interface ViewerArgs {
+  editable: boolean;
+}
+
+const meta: Meta<ViewerArgs> = {
+  title: 'Getting Started/Viewer',
+  argTypes: {
+    editable: { control: 'boolean' },
+  },
+  args: {
+    editable: false,
+  },
 };
 export default meta;
 
-type Story = StoryObj;
-
-export const ViewerMode: Story = {
-  render: () => {
+export const Viewer: StoryObj<ViewerArgs> = {
+  render: (args) => {
     const root = document.createElement('div');
-
-    const inspector = document.createElement('div');
-    inspector.style.width = '100%';
-    inspector.style.height = '80px';
-    inspector.innerHTML = `
-      <label for="editable">Editable:</label>
-      <input type="checkbox" id="editable" />
-    `;
-
-    const editableCheckbox = inspector.querySelector<HTMLInputElement>('#editable');
-
-    editableCheckbox?.addEventListener('change', () => {
-      pegboard.setEditable(editableCheckbox.checked);
-    });
-
-    const container = document.createElement('div');
-    container.style.width = '100%';
-    container.style.height = '480px';
-
-    root.appendChild(inspector);
-    root.appendChild(container);
+    root.style.width = '100%';
 
     const boardHost = document.createElement('div');
     boardHost.style.height = '100%';
-    container.appendChild(boardHost);
+    root.appendChild(boardHost);
 
     const pegboard = new Pegboard({
       container: boardHost,
       grid: { columns: 12, rowHeight: 60, gap: 8 },
-      editable: false,
+      editable: args.editable,
       allowOverlap: false,
     });
 
