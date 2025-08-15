@@ -413,12 +413,19 @@ export class DragManager extends EventEmitter {
       applyDraggingVisual(this.selectedBlock, { dx: deltaX, dy: deltaY });
     }
 
-    // 스냅 후보 grid 좌표 계산 (기존 로직과 동일한 룰 적용)
-    const col = Math.round(rawLeft / this.dragState.cellTotalWidth!) + 1; // 1-indexed
-    const row = Math.round(rawTop / this.dragState.rowUnit!) + 1;
+    // 스냅 후보 grid 좌표 계산
+    const gridX = Math.round(rawLeft / this.dragState.cellTotalWidth!) + 1; // 1-indexed
+    const gridY = Math.round(rawTop / this.dragState.rowUnit!) + 1;
+
+    // 후보 위치를 열/행 범위 내로 클램핑. 가시성 향상을 위해 앵커 블록의 크기를 고려
+    const anchorSize = this.selectedBlock.getData().size;
+    const maxXStart = Math.max(1, config.columns - anchorSize.width + 1);
+    const hasRowCap = !!config.rows && config.rows > 0;
+    const maxYStart = hasRowCap ? Math.max(1, (config.rows as number) - anchorSize.height + 1) : Infinity;
+
     const candidate: GridPosition = {
-      x: Math.max(1, Math.min(config.columns, col)),
-      y: Math.max(1, row),
+      x: Math.max(1, Math.min(maxXStart, gridX)),
+      y: Math.max(1, Math.min(maxYStart as number, gridY)),
       zIndex: this.startPosition.zIndex,
     };
 
@@ -469,7 +476,7 @@ export class DragManager extends EventEmitter {
         .filter((b) => b.id !== blockData.id);
       const collides =
         !allowOverlap &&
-        this.grid.checkGridCollision(candidate, blockData.size, blockData.id, existingBlocks);
+        this.grid.checkGridCollision(candidate, blockData.size, blockData.id, existingBlocks as any);
       const valid = this.grid.isValidGridPosition(candidate, blockData.size) && !collides;
       this.pendingMoveGridPosition = valid ? candidate : null;
       this.updateHintOverlay(candidate, blockData.size, valid);

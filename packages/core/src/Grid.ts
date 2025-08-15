@@ -86,12 +86,13 @@ export class Grid {
   }
 
   isValidGridPosition(position: GridPosition, size: GridSize): boolean {
-    return (
-      position.x >= 1 &&
-      position.y >= 1 &&
-      position.x + size.width - 1 <= this.config.columns &&
-      position.y + size.height - 1 >= 1
-    );
+    const withinColumns =
+      position.x >= 1 && position.x + size.width - 1 <= this.config.columns;
+    const hasRowCap = !!this.config.rows && this.config.rows > 0;
+    const withinRows = hasRowCap
+      ? position.y >= 1 && position.y + size.height - 1 <= (this.config.rows as number)
+      : position.y >= 1; // rows 미지정 시 하한만 체크
+    return withinColumns && withinRows;
   }
 
   getGridSizeFromPixels(size: { width: number; height: number }, container: HTMLElement): GridSize {
@@ -152,11 +153,15 @@ export class Grid {
       size: GridSize;
     }[],
   ): GridPosition {
-    for (let row = 1; row <= 100; row++) {
+    const maxRows = this.config.rows && this.config.rows > 0 ? this.config.rows : 100;
+    for (let row = 1; row <= (maxRows as number); row++) {
       for (let column = 1; column <= this.config.columns - size.width + 1; column++) {
         const position: GridPosition = { x: column, y: row, zIndex: 1 };
 
-        if (!this.checkGridCollision(position, size, '', existingBlocks)) {
+        if (
+          (!this.config.rows || row + size.height - 1 <= (this.config.rows as number)) &&
+          !this.checkGridCollision(position, size, '', existingBlocks)
+        ) {
           return position;
         }
       }
