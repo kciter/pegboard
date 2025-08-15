@@ -30,6 +30,11 @@ const meta: Meta<GridArgs> = {
 export default meta;
 
 export const GridControls: StoryObj<GridArgs> = {
+  args: {
+    columns: 17,
+    rows: 7,
+  },
+
   render: (args) => {
     const root = document.createElement('div');
     root.style.width = '100%';

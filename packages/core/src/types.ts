@@ -36,6 +36,8 @@ export interface GridConfig {
   gap: number;
 }
 
+export type DragReflowStrategy = 'none' | 'shift-down' | 'pack-top';
+
 export interface PegboardConfig {
   container: HTMLElement;
   grid: GridConfig;
@@ -43,6 +45,9 @@ export interface PegboardConfig {
   allowOverlap?: boolean;
   autoArrange?: boolean;
   arrangeAnimationMs?: number;
+  dragReflow?: DragReflowStrategy;
+  arrangePreview?: ArrangePreviewStrategy;
+  lassoSelection?: boolean; // 라쏘 선택 허용 여부(기본 false)
 }
 
 export interface DragState {
@@ -77,3 +82,6 @@ export interface SerializedPegboardData {
   grid: GridConfig;
   blocks: BlockData[];
 }
+
+// 라이브 재배치 프리뷰 전략
+export type ArrangePreviewStrategy = 'none' | 'push-down';

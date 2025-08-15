@@ -17,6 +17,10 @@ export class Pegboard extends EventEmitter {
   private allowOverlap: boolean;
   private autoArrange: boolean;
   private arrangeAnimationMs: number;
+  private arrangePreview: CoreTypes.ArrangePreviewStrategy = 'none';
+  private livePreviewPositions: Map<string, CoreTypes.GridPosition> | null = null;
+  private dragReflow: CoreTypes.DragReflowStrategy = 'none';
+  private lassoSelection: boolean = false;
 
   constructor(config: CoreTypes.PegboardConfig) {
     super();
@@ -27,6 +31,9 @@ export class Pegboard extends EventEmitter {
     this.allowOverlap = !!config.allowOverlap;
     this.autoArrange = !!config.autoArrange;
     this.arrangeAnimationMs = config.arrangeAnimationMs ?? 220;
+    this.arrangePreview = config.arrangePreview ?? 'none';
+    this.dragReflow = config.dragReflow ?? 'none';
+    this.lassoSelection = !!config.lassoSelection; // 기본 false
 
     this.setupContainer();
     this.setupDragManager();
@@ -56,6 +63,8 @@ export class Pegboard extends EventEmitter {
       () => Array.from(this.blocks.values()),
       () => this.allowOverlap,
       (type: string) => this.plugins.get(type),
+      () => this.dragReflow,
+      () => this.lassoSelection,
     );
 
     this.dragManager.on('block:moved', ({ block, oldPosition }) => {
@@ -572,6 +581,22 @@ export class Pegboard extends EventEmitter {
 
   getAllowOverlap() {
     return this.allowOverlap;
+  }
+
+  setDragReflow(strategy: CoreTypes.DragReflowStrategy) {
+    this.dragReflow = strategy;
+  }
+
+  getDragReflow() {
+    return this.dragReflow;
+  }
+
+  setLassoSelection(enabled: boolean) {
+    this.lassoSelection = !!enabled;
+  }
+
+  getLassoSelection() {
+    return this.lassoSelection;
   }
 
   destroy(): void {

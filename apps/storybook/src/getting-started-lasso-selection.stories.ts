@@ -1,0 +1,77 @@
+import type { Meta, StoryObj } from '@storybook/html';
+import { Pegboard } from '@pegboard/core';
+import { BoxBlock } from './blocks/box-block';
+
+interface LassoArgs {
+  lassoSelection: boolean;
+}
+
+const meta: Meta<LassoArgs> = {
+  title: 'Getting Started/Lasso Selection',
+  argTypes: {
+    lassoSelection: { control: 'boolean' },
+  },
+  args: {
+    lassoSelection: false,
+  },
+};
+export default meta;
+
+export const LassoSelection: StoryObj<LassoArgs> = {
+  render: (args) => {
+    const root = document.createElement('div');
+    root.style.width = '100%';
+
+    const container = document.createElement('div');
+    root.appendChild(container);
+
+    const pegboard = new Pegboard({
+      container,
+      grid: { columns: 12, rows: 10, rowHeight: 60, gap: 8 },
+      editable: true,
+      allowOverlap: false,
+      lassoSelection: !!args.lassoSelection,
+    });
+
+    pegboard.registerPlugin(new BoxBlock());
+
+    const colors = [
+      'hsl(210,70%,60%)',
+      'hsl(140,70%,55%)',
+      'hsl(20,80%,60%)',
+      'hsl(270,60%,65%)',
+      'hsl(330,70%,60%)',
+      'hsl(30,80%,55%)',
+    ];
+
+    // 격자에 여러 박스를 흩뿌려 라쏘 선택을 테스트
+    const blocks = [
+      { x: 1, y: 1, w: 2, h: 2 },
+      { x: 4, y: 1, w: 3, h: 2 },
+      { x: 8, y: 1, w: 2, h: 3 },
+      { x: 2, y: 5, w: 3, h: 2 },
+      { x: 6, y: 4, w: 3, h: 2 },
+      { x: 9, y: 6, w: 2, h: 2 },
+    ];
+
+    blocks.forEach((b, i) => {
+      pegboard.addBlock({
+        type: 'box',
+        position: { x: b.x, y: b.y, zIndex: i + 1 },
+        size: { width: b.w, height: b.h },
+        attributes: { text: String.fromCharCode(65 + i), color: colors[i % colors.length] },
+      });
+    });
+
+    const tip = document.createElement('p');
+    tip.style.marginTop = '8px';
+    tip.style.font =
+      '12px/1.4 -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif';
+    tip.style.color = '#666';
+    tip.textContent =
+      '빈 공간에서 마우스를 드래그해 라쏘 박스를 그려보세요. Shift 키를 누른 채 드래그하면 기존 선택에 추가됩니다.';
+    root.appendChild(tip);
+
+    return root;
+  },
+};
