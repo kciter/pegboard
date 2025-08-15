@@ -143,9 +143,15 @@ export class Block {
   setSelected(selected: boolean): void {
     if (selected) {
       this.element.classList.add('pegboard-block-selected');
+      // 선택 시 시각적 강조(리사이즈 가능 여부와 무관)
+      this.element.style.outline = '1px solid #1e90ff';
+      this.element.style.outlineOffset = '0px';
       this.createResizeHandles();
     } else {
       this.element.classList.remove('pegboard-block-selected');
+      // 선택 해제 시 강조 제거
+      this.element.style.outline = '';
+      this.element.style.outlineOffset = '';
       this.clearResizeHandles();
     }
   }
