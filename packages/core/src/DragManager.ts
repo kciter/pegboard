@@ -54,6 +54,10 @@ export class DragManager extends EventEmitter {
     document.addEventListener('keyup', this.handleKeyUp);
   }
 
+  private isEditorMode(): boolean {
+    return this.container.classList.contains('pegboard-editor-mode');
+  }
+
   private computeCellMetrics() {
     const rect = this.container.getBoundingClientRect();
     const config = this.grid.getConfig();
@@ -66,6 +70,7 @@ export class DragManager extends EventEmitter {
   }
 
   private handleMouseDown(event: MouseEvent): void {
+    if (!this.isEditorMode()) return; // 뷰어 모드에서는 차단
     const target = event.target as HTMLElement;
     const blockElement = target.closest('.pegboard-block') as HTMLElement;
 
@@ -230,6 +235,7 @@ export class DragManager extends EventEmitter {
   }
 
   private handleLassoStart(event: MouseEvent): void {
+    if (!this.isEditorMode()) return; // 뷰어 모드에서는 차단
     const target = event.target as HTMLElement;
     const onBlock = target.closest('.pegboard-block');
     if (onBlock) return; // 블록 위에서는 기존 처리로 이동/리사이즈
@@ -298,6 +304,7 @@ export class DragManager extends EventEmitter {
   }
 
   private handleMouseMove(event: MouseEvent): void {
+    if (!this.isEditorMode()) return; // 뷰어 모드에서는 차단
     if (this.isLassoSelecting) {
       const rect = this.container.getBoundingClientRect();
       const x = event.clientX - rect.left;
@@ -518,6 +525,7 @@ export class DragManager extends EventEmitter {
   }
 
   private handleMouseUp(): void {
+    if (!this.isEditorMode() && !this.dragState.isDragging && !this.isLassoSelecting) return; // 뷰어 모드에서 진행 중 작업 없으면 무시
     if (this.dragState.isDragging && this.selectedBlock && this.startPosition && this.startSize) {
       const blockData = this.selectedBlock.getData();
       if (this.dragState.dragType === 'move') {

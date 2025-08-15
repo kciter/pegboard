@@ -3,13 +3,13 @@ import { Pegboard } from '@pegboard/core';
 import { BoxBlock } from './blocks/box-block';
 
 const meta: Meta = {
-  title: 'Getting Started/Basic Editor',
+  title: 'Getting Started/Basic',
 };
 export default meta;
 
 type Story = StoryObj;
 
-export const BasicEditor: Story = {
+export const Basic: Story = {
   render: () => {
     const root = document.createElement('div');
     root.style.width = '100%';
