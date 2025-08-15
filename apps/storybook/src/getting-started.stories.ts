@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/html';
-import { Pegboard, BlockExtension, BlockData } from '@pegboard/core';
+import { Pegboard } from '@pegboard/core';
 import { BoxBlock } from './blocks/box-block';
 
 const meta: Meta = {
@@ -32,6 +32,9 @@ export const BasicEditor: Story = {
     const randomColor = () => `hsl(${Math.floor(Math.random() * 360)}, 70%, 60%)`;
     pegboard.addBlock({
       type: 'box',
+      position: { x: 2, y: 2, zIndex: 0 },
+      size: { width: 3, height: 2 },
+      id: 'box-1',
       attributes: {
         text: 'Box',
         color: randomColor(),
