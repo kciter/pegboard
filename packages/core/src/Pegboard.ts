@@ -327,7 +327,10 @@ export class Pegboard extends EventEmitter {
       position: {
         x: finalPosition.x,
         y: finalPosition.y,
-        zIndex: finalPosition.zIndex ?? this.nextZIndex++,
+        zIndex:
+          data.position && data.position.zIndex !== undefined
+            ? data.position.zIndex
+            : this.nextZIndex++,
       },
       size: clampedSize,
       attributes: { ...(plugin?.defaultAttributes || {}), ...(data.attributes || {}) },
@@ -608,11 +611,53 @@ export class Pegboard extends EventEmitter {
       zIndex: this.nextZIndex++,
     });
 
+    // nextZIndex 동기화
+    this.syncNextZIndex();
     return true;
+  }
+
+  private syncNextZIndex() {
+    const maxZ = this.getAllBlocks().reduce((m, d) => Math.max(m, d.position.zIndex), 0);
+    this.nextZIndex = Math.max(this.nextZIndex, maxZ + 1);
+  }
+
+  // z-index 중복이 있으면 1..N으로 재배열해 유일하게 만듭니다(상대 순서는 유지)
+  private normalizeZOrder() {
+    const items = Array.from(this.blocks.values()).map((b) => ({
+      b,
+      z: b.getData().position.zIndex,
+      id: b.getData().id,
+    }));
+    items.sort((a, b) => (a.z === b.z ? a.id.localeCompare(b.id) : a.z - b.z));
+    let changed = false;
+    items.forEach((it, idx) => {
+      const desired = idx + 1;
+      if (it.z !== desired) {
+        const pos = it.b.getData().position;
+        it.b.setPosition({ ...pos, zIndex: desired });
+        changed = true;
+      }
+    });
+    if (changed) this.syncNextZIndex();
+  }
+
+  private ensureUniqueZIndices() {
+    const seen = new Set<number>();
+    let dup = false;
+    for (const b of this.blocks.values()) {
+      const z = b.getData().position.zIndex;
+      if (seen.has(z)) {
+        dup = true;
+        break;
+      }
+      seen.add(z);
+    }
+    if (dup) this.normalizeZOrder();
   }
 
   // 한 단계 앞으로 (z-index를 바로 위의 블록과 교환)
   bringForward(id: string): boolean {
+    this.ensureUniqueZIndices();
     const list = Array.from(this.blocks.values());
     if (list.length <= 1) return false;
     const sorted = list
@@ -627,6 +672,8 @@ export class Pegboard extends EventEmitter {
     // swap
     current.setPosition({ ...current.getData().position, zIndex: az });
     above.setPosition({ ...above.getData().position, zIndex: cz });
+
+    this.syncNextZIndex();
     return true;
   }
 
@@ -639,14 +686,16 @@ export class Pegboard extends EventEmitter {
 
     block.setPosition({
       ...blockData.position,
-      zIndex: Math.max(0, minZIndex - 1),
+      zIndex: minZIndex - 1, // 음수 허용: 진짜 최하단으로
     });
 
+    this.syncNextZIndex();
     return true;
   }
 
   // 한 단계 뒤로 (z-index를 바로 아래의 블록과 교환)
   sendBackward(id: string): boolean {
+    this.ensureUniqueZIndices();
     const list = Array.from(this.blocks.values());
     if (list.length <= 1) return false;
     const sorted = list
@@ -661,6 +710,8 @@ export class Pegboard extends EventEmitter {
     // swap
     current.setPosition({ ...current.getData().position, zIndex: bz });
     below.setPosition({ ...below.getData().position, zIndex: cz });
+
+    this.syncNextZIndex();
     return true;
   }
 
