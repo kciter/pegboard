@@ -45,13 +45,13 @@ export class Grid {
     const relativeX = position.x - rect.left - paddingLeft;
     const relativeY = position.y - rect.top - paddingTop;
 
-    const column = Math.max(
+    const x = Math.max(
       1,
       Math.min(this.config.columns, Math.round(relativeX / (columnWidth + this.config.gap)) + 1),
     );
-    const row = Math.max(1, Math.round(relativeY / effectiveRowHeight) + 1);
+    const y = Math.max(1, Math.round(relativeY / effectiveRowHeight) + 1);
 
-    return { column, row, zIndex: 1 };
+    return { x, y, zIndex: 1 };
   }
 
   getPixelsFromGridPosition(gridPosition: GridPosition, container: HTMLElement): Position {
@@ -66,8 +66,8 @@ export class Grid {
       (innerWidth - this.config.gap * (this.config.columns - 1)) / this.config.columns;
     const effectiveRowHeight = this.config.rowHeight + this.config.gap;
 
-    const x = rect.left + paddingLeft + (gridPosition.column - 1) * (columnWidth + this.config.gap);
-    const y = rect.top + paddingTop + (gridPosition.row - 1) * effectiveRowHeight;
+    const x = rect.left + paddingLeft + (gridPosition.x - 1) * (columnWidth + this.config.gap);
+    const y = rect.top + paddingTop + (gridPosition.y - 1) * effectiveRowHeight;
 
     return { x, y };
   }
@@ -76,12 +76,12 @@ export class Grid {
     return this.getGridPositionFromPixels(position, container);
   }
 
-  isValidGridPosition(gridPosition: GridPosition, gridSize: GridSize): boolean {
+  isValidGridPosition(position: GridPosition, size: GridSize): boolean {
     return (
-      gridPosition.column >= 1 &&
-      gridPosition.row >= 1 &&
-      gridPosition.column + gridSize.columnSpan - 1 <= this.config.columns &&
-      gridPosition.row >= 1
+      position.x >= 1 &&
+      position.y >= 1 &&
+      position.x + size.width - 1 <= this.config.columns &&
+      position.y + size.height - 1 >= 1
     );
   }
 
@@ -96,13 +96,13 @@ export class Grid {
       (innerWidth - this.config.gap * (this.config.columns - 1)) / this.config.columns;
     const effectiveRowHeight = this.config.rowHeight + this.config.gap;
 
-    const columnSpan = Math.max(
+    const width = Math.max(
       1,
       Math.min(this.config.columns, Math.round(size.width / (columnWidth + this.config.gap))),
     );
-    const rowSpan = Math.max(1, Math.round(size.height / effectiveRowHeight));
+    const height = Math.max(1, Math.round(size.height / effectiveRowHeight));
 
-    return { columnSpan, rowSpan };
+    return { width, height };
   }
 
   checkGridCollision(
@@ -111,25 +111,21 @@ export class Grid {
     excludeBlockId: string,
     existingBlocks: {
       id: string;
-      gridPosition: GridPosition;
-      gridSize: GridSize;
+      position: GridPosition;
+      size: GridSize;
     }[],
   ): boolean {
-    const newEndColumn = newPosition.column + newSize.columnSpan - 1;
-    const newEndRow = newPosition.row + newSize.rowSpan - 1;
+    const newEndX = newPosition.x + newSize.width - 1;
+    const newEndY = newPosition.y + newSize.height - 1;
 
     for (const block of existingBlocks) {
       if (block.id === excludeBlockId) continue;
 
-      const existingEndColumn = block.gridPosition.column + block.gridSize.columnSpan - 1;
-      const existingEndRow = block.gridPosition.row + block.gridSize.rowSpan - 1;
+      const existingEndX = block.position.x + block.size.width - 1;
+      const existingEndY = block.position.y + block.size.height - 1;
 
-      const horizontalOverlap = !(
-        newPosition.column > existingEndColumn || newEndColumn < block.gridPosition.column
-      );
-      const verticalOverlap = !(
-        newPosition.row > existingEndRow || newEndRow < block.gridPosition.row
-      );
+      const horizontalOverlap = !(newPosition.x > existingEndX || newEndX < block.position.x);
+      const verticalOverlap = !(newPosition.y > existingEndY || newEndY < block.position.y);
 
       if (horizontalOverlap && verticalOverlap) {
         return true;
@@ -140,24 +136,24 @@ export class Grid {
   }
 
   findAvailablePosition(
-    gridSize: GridSize,
+    size: GridSize,
     existingBlocks: {
       id: string;
-      gridPosition: GridPosition;
-      gridSize: GridSize;
+      position: GridPosition;
+      size: GridSize;
     }[],
   ): GridPosition {
     for (let row = 1; row <= 100; row++) {
-      for (let column = 1; column <= this.config.columns - gridSize.columnSpan + 1; column++) {
-        const position: GridPosition = { column, row, zIndex: 1 };
+      for (let column = 1; column <= this.config.columns - size.width + 1; column++) {
+        const position: GridPosition = { x: column, y: row, zIndex: 1 };
 
-        if (!this.checkGridCollision(position, gridSize, '', existingBlocks)) {
+        if (!this.checkGridCollision(position, size, '', existingBlocks)) {
           return position;
         }
       }
     }
 
-    return { column: 1, row: 1, zIndex: 1 };
+    return { x: 1, y: 1, zIndex: 1 };
   }
 
   renderGridLines(container: HTMLElement): void {

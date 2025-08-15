@@ -9,24 +9,22 @@ export interface Size {
 }
 
 export interface GridPosition {
-  column: number;
-  row: number;
+  x: number;
+  y: number;
   zIndex: number;
 }
 
 export interface GridSize {
-  columnSpan: number;
-  rowSpan: number;
+  width: number;
+  height: number;
 }
 
 export interface BlockData {
   id: string;
   type: string;
-  gridPosition: GridPosition;
-  gridSize: GridSize;
+  position: GridPosition;
+  size: GridSize;
   attributes: Record<string, any>;
-  groupId?: string;
-  // per-block interaction flags (undefined => allowed)
   movable?: boolean;
   resizable?: boolean;
 }

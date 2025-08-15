@@ -114,26 +114,25 @@ export class Block {
   }
 
   private updateElement(): void {
-    const { gridPosition, gridSize } = this.data;
+    const { position, size } = this.data;
 
     // grid 레이아웃 강제 적용
     this.element.style.removeProperty('grid-area');
 
-    const gridColumnValue = `${gridPosition.column} / span ${gridSize.columnSpan}`;
-    const gridRowValue = `${gridPosition.row} / span ${gridSize.rowSpan}`;
+    const gridColumnValue = `${position.x} / span ${size.width}`;
+    const gridRowValue = `${position.y} / span ${size.height}`;
     this.element.style.setProperty('grid-column', gridColumnValue, 'important');
     this.element.style.setProperty('grid-row', gridRowValue, 'important');
-    this.element.style.setProperty('z-index', gridPosition.zIndex.toString(), 'important');
-    // transform 은 드래그 미리보기용으로 동적으로 적용/해제되므로 여기서 초기화하지 않음
+    this.element.style.setProperty('z-index', position.zIndex.toString(), 'important');
   }
 
-  setGridPosition(gridPosition: GridPosition): void {
-    this.data.gridPosition = { ...gridPosition };
+  setPosition(position: GridPosition): void {
+    this.data.position = { ...position };
     this.updateElement();
   }
 
-  setGridSize(gridSize: GridSize): void {
-    this.data.gridSize = { ...gridSize };
+  setSize(size: GridSize): void {
+    this.data.size = { ...size };
     this.updateElement();
   }
 
@@ -195,10 +194,10 @@ export class Block {
     rowSpan: number;
   } {
     return {
-      column: this.data.gridPosition.column,
-      row: this.data.gridPosition.row,
-      columnSpan: this.data.gridSize.columnSpan,
-      rowSpan: this.data.gridSize.rowSpan,
+      column: this.data.position.x,
+      row: this.data.position.y,
+      columnSpan: this.data.size.width,
+      rowSpan: this.data.size.height,
     };
   }
 

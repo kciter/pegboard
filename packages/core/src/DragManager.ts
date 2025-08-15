@@ -12,8 +12,8 @@ export class DragManager extends EventEmitter {
   };
 
   private selectedBlock: Block | null = null;
-  private startGridPosition: GridPosition | null = null;
-  private startGridSize: GridSize | null = null;
+  private startPosition: GridPosition | null = null;
+  private startSize: GridSize | null = null;
   private pointerDownOffset: { dx: number; dy: number } | null = null; // 블록 내부 클릭 offset(픽셀)
   private hintElement: HTMLElement | null = null;
   private pendingMoveGridPosition: GridPosition | null = null;
@@ -153,8 +153,8 @@ export class DragManager extends EventEmitter {
       return; // 선택 토글일 땐 드래그 시작하지 않음
     }
 
-    this.startGridPosition = { ...blockData.gridPosition };
-    this.startGridSize = { ...blockData.gridSize };
+    this.startPosition = { ...blockData.position };
+    this.startSize = { ...blockData.size };
 
     // metrics 저장
     const metrics = this.computeCellMetrics();
@@ -223,7 +223,7 @@ export class DragManager extends EventEmitter {
       const b = this.getBlock(id);
       if (!b) return;
       const d = b.getData();
-      this.groupMoveStartPositions.set(id, { ...d.gridPosition });
+      this.groupMoveStartPositions.set(id, { ...d.position });
       const r = b.getElement().getBoundingClientRect();
       this.groupStartPixelPos.set(id, { left: r.left - contRect.left, top: r.top - contRect.top });
     });
@@ -367,7 +367,7 @@ export class DragManager extends EventEmitter {
   private handleSmoothMove(event: MouseEvent): void {
     if (
       !this.selectedBlock ||
-      !this.startGridPosition ||
+      !this.startPosition ||
       !this.pointerDownOffset ||
       !this.startBlockPixelPos
     )
@@ -410,17 +410,17 @@ export class DragManager extends EventEmitter {
     const col = Math.round(rawLeft / this.dragState.cellTotalWidth!) + 1; // 1-indexed
     const row = Math.round(rawTop / this.dragState.rowUnit!) + 1;
     const candidate: GridPosition = {
-      column: Math.max(1, Math.min(config.columns, col)),
-      row: Math.max(1, row),
-      zIndex: this.startGridPosition.zIndex,
+      x: Math.max(1, Math.min(config.columns, col)),
+      y: Math.max(1, row),
+      zIndex: this.startPosition.zIndex,
     };
 
     const allowOverlap = this.getAllowOverlap ? this.getAllowOverlap() : false;
 
     if (this.selection.size > 1) {
       // 그룹 유효성 검사: anchor 기준 delta 로 각 블록 적용
-      const deltaCol = candidate.column - this.startGridPosition.column;
-      const deltaRow = candidate.row - this.startGridPosition.row;
+      const deltaCol = candidate.x - this.startPosition.x;
+      const deltaRow = candidate.y - this.startPosition.y;
       const allBlocks = this.getAllBlocks();
       const allBlocksData = allBlocks.map((b) => b.getData());
       const immovableSelected = allBlocksData.filter(
@@ -434,17 +434,17 @@ export class DragManager extends EventEmitter {
         if (!b) continue;
         const d = b.getData();
         if (d.movable === false) continue; // 이동 대상 아님
-        const startPos = this.groupMoveStartPositions.get(id) || d.gridPosition;
+        const startPos = this.groupMoveStartPositions.get(id) || d.position;
         const targetPos: GridPosition = {
-          column: Math.max(1, startPos.column + deltaCol),
-          row: Math.max(1, startPos.row + deltaRow),
+          x: Math.max(1, startPos.x + deltaCol),
+          y: Math.max(1, startPos.y + deltaRow),
           zIndex: startPos.zIndex,
         };
         // 충돌 체크: 비선택 블럭 + 선택 중 immovable 블럭과 충돌 금지
         const others = [...othersNonSelected, ...immovableSelected];
         const collidesWithOthers =
-          !allowOverlap && this.grid.checkGridCollision(targetPos, d.gridSize, d.id, others);
-        const valid = this.grid.isValidGridPosition(targetPos, d.gridSize) && !collidesWithOthers;
+          !allowOverlap && this.grid.checkGridCollision(targetPos, d.size, d.id, others);
+        const valid = this.grid.isValidGridPosition(targetPos, d.size) && !collidesWithOthers;
         if (!valid) {
           groupValid = false;
           break;
@@ -453,7 +453,7 @@ export class DragManager extends EventEmitter {
       }
       this.pendingGroupMovePositions = groupValid ? nextPositions : null;
       // 힌트는 anchor 기준으로만 표시하되, groupValid 로 색 결정
-      this.updateHintOverlay(candidate, this.selectedBlock.getData().gridSize, groupValid);
+      this.updateHintOverlay(candidate, this.selectedBlock.getData().size, groupValid);
     } else {
       // 단일 이동 기존 로직
       const blockData = this.selectedBlock.getData();
@@ -462,10 +462,10 @@ export class DragManager extends EventEmitter {
         .filter((b) => b.id !== blockData.id);
       const collides =
         !allowOverlap &&
-        this.grid.checkGridCollision(candidate, blockData.gridSize, blockData.id, existingBlocks);
-      const valid = this.grid.isValidGridPosition(candidate, blockData.gridSize) && !collides;
+        this.grid.checkGridCollision(candidate, blockData.size, blockData.id, existingBlocks);
+      const valid = this.grid.isValidGridPosition(candidate, blockData.size) && !collides;
       this.pendingMoveGridPosition = valid ? candidate : null;
-      this.updateHintOverlay(candidate, blockData.gridSize, valid);
+      this.updateHintOverlay(candidate, blockData.size, valid);
     }
   }
 
@@ -482,8 +482,8 @@ export class DragManager extends EventEmitter {
       } as CSSStyleDeclaration);
       this.container.appendChild(this.hintElement);
     }
-    this.hintElement.style.gridColumn = `${pos.column} / span ${size.columnSpan}`;
-    this.hintElement.style.gridRow = `${pos.row} / span ${size.rowSpan}`;
+    this.hintElement.style.gridColumn = `${pos.x} / span ${size.width}`;
+    this.hintElement.style.gridRow = `${pos.y} / span ${size.height}`;
     if (valid) {
       this.hintElement.style.borderColor = '#1e90ff';
       this.hintElement.style.background = 'rgba(30,144,255,0.15)';
@@ -518,23 +518,18 @@ export class DragManager extends EventEmitter {
   }
 
   private handleMouseUp(): void {
-    if (
-      this.dragState.isDragging &&
-      this.selectedBlock &&
-      this.startGridPosition &&
-      this.startGridSize
-    ) {
+    if (this.dragState.isDragging && this.selectedBlock && this.startPosition && this.startSize) {
       const blockData = this.selectedBlock.getData();
       if (this.dragState.dragType === 'move') {
         this.clearDragPreview();
-        const oldPosition = { ...this.startGridPosition };
+        const oldPosition = { ...this.startPosition };
         if (this.selection.size > 1) {
           if (this.pendingGroupMovePositions) {
             // 그룹 적용
             for (const [id, pos] of this.pendingGroupMovePositions.entries()) {
               const b = this.getBlock(id);
               if (!b) continue;
-              b.setGridPosition(pos);
+              b.setPosition(pos);
             }
             // anchor 기준 이벤트 하나만 발행
             this.emit('block:moved', {
@@ -546,7 +541,7 @@ export class DragManager extends EventEmitter {
           this.clearHintOverlay();
         } else {
           if (this.pendingMoveGridPosition) {
-            this.selectedBlock.setGridPosition(this.pendingMoveGridPosition);
+            this.selectedBlock.setPosition(this.pendingMoveGridPosition);
             this.emit('block:moved', {
               block: this.selectedBlock.getData(),
               oldPosition,
@@ -557,10 +552,10 @@ export class DragManager extends EventEmitter {
         }
       } else if (this.dragState.dragType === 'resize') {
         // 프리뷰 적용
-        const oldSize = { ...this.startGridSize };
+        const oldSize = { ...this.startSize };
         if (this.pendingResizeGridPosition && this.pendingResizeGridSize) {
-          this.selectedBlock.setGridPosition(this.pendingResizeGridPosition);
-          this.selectedBlock.setGridSize(this.pendingResizeGridSize);
+          this.selectedBlock.setPosition(this.pendingResizeGridPosition);
+          this.selectedBlock.setSize(this.pendingResizeGridSize);
           this.emit('block:resized', {
             block: this.selectedBlock.getData(),
             oldSize,
@@ -584,15 +579,15 @@ export class DragManager extends EventEmitter {
       dragType: 'move',
       startPosition: { x: 0, y: 0 },
     };
-    this.startGridPosition = null;
-    this.startGridSize = null;
+    this.startPosition = null;
+    this.startSize = null;
     this.pointerDownOffset = null;
     this.groupMoveStartPositions.clear();
     this.groupStartPixelPos.clear();
   }
 
   private handleMove(event: MouseEvent): void {
-    if (!this.selectedBlock || !this.startGridPosition || !this.pointerDownOffset) return;
+    if (!this.selectedBlock || !this.startPosition || !this.pointerDownOffset) return;
 
     const config = this.grid.getConfig();
     const rect = this.container.getBoundingClientRect();
@@ -604,10 +599,10 @@ export class DragManager extends EventEmitter {
     const col = Math.round(rawLeft / this.dragState.cellTotalWidth!) + 1; // 1-indexed
     const row = Math.round(rawTop / this.dragState.rowUnit!) + 1;
 
-    const newGridPosition: GridPosition = {
-      column: Math.max(1, Math.min(config.columns, col)),
-      row: Math.max(1, row),
-      zIndex: this.startGridPosition.zIndex,
+    const newPosition: GridPosition = {
+      x: Math.max(1, Math.min(config.columns, col)),
+      y: Math.max(1, row),
+      zIndex: this.startPosition.zIndex,
     };
 
     const allowOverlap = this.getAllowOverlap ? this.getAllowOverlap() : false;
@@ -618,19 +613,14 @@ export class DragManager extends EventEmitter {
 
     const noCollision =
       allowOverlap ||
-      !this.grid.checkGridCollision(
-        newGridPosition,
-        blockData.gridSize,
-        blockData.id,
-        existingBlocks,
-      );
-    if (noCollision && this.grid.isValidGridPosition(newGridPosition, blockData.gridSize)) {
-      this.selectedBlock.setGridPosition(newGridPosition);
+      !this.grid.checkGridCollision(newPosition, blockData.size, blockData.id, existingBlocks);
+    if (noCollision && this.grid.isValidGridPosition(newPosition, blockData.size)) {
+      this.selectedBlock.setPosition(newPosition);
     }
   }
 
   private handleResize(event: MouseEvent): void {
-    if (!this.selectedBlock || !this.startGridPosition || !this.startGridSize) return;
+    if (!this.selectedBlock || !this.startPosition || !this.startSize) return;
     const direction = this.dragState.resizeDirection || '';
 
     const deltaX = event.clientX - this.dragState.startPosition.x;
@@ -639,29 +629,29 @@ export class DragManager extends EventEmitter {
     const gridDeltaX = Math.round(deltaX / this.dragState.cellTotalWidth!);
     const gridDeltaY = Math.round(deltaY / this.dragState.rowUnit!);
 
-    let candidatePos = { ...this.startGridPosition };
-    let candidateSize = { ...this.startGridSize };
+    let candidatePos = { ...this.startPosition };
+    let candidateSize = { ...this.startSize };
 
     if (direction.includes('e')) {
-      candidateSize.columnSpan = Math.max(1, this.startGridSize.columnSpan + gridDeltaX);
+      candidateSize.width = Math.max(1, this.startSize.width + gridDeltaX);
     }
     if (direction.includes('w')) {
-      const newSpan = Math.max(1, this.startGridSize.columnSpan - gridDeltaX);
-      const change = this.startGridSize.columnSpan - newSpan;
-      if (this.startGridPosition.column + change >= 1) {
-        candidatePos.column = this.startGridPosition.column + change;
-        candidateSize.columnSpan = newSpan;
+      const newSpan = Math.max(1, this.startSize.width - gridDeltaX);
+      const change = this.startSize.width - newSpan;
+      if (this.startPosition.x + change >= 1) {
+        candidatePos.x = this.startPosition.x + change;
+        candidateSize.width = newSpan;
       }
     }
     if (direction.includes('s')) {
-      candidateSize.rowSpan = Math.max(1, this.startGridSize.rowSpan + gridDeltaY);
+      candidateSize.height = Math.max(1, this.startSize.height + gridDeltaY);
     }
     if (direction.includes('n')) {
-      const newSpan = Math.max(1, this.startGridSize.rowSpan - gridDeltaY);
-      const change = this.startGridSize.rowSpan - newSpan;
-      if (this.startGridPosition.row + change >= 1) {
-        candidatePos.row = this.startGridPosition.row + change;
-        candidateSize.rowSpan = newSpan;
+      const newSpan = Math.max(1, this.startSize.height - gridDeltaY);
+      const change = this.startSize.height - newSpan;
+      if (this.startPosition.y + change >= 1) {
+        candidatePos.y = this.startPosition.y + change;
+        candidateSize.height = newSpan;
       }
     }
 
@@ -675,18 +665,15 @@ export class DragManager extends EventEmitter {
         if (max !== undefined) v = Math.min(max, v);
         return v;
       };
-      const beforeW = candidateSize.columnSpan;
-      const beforeH = candidateSize.rowSpan;
-      candidateSize.columnSpan = clamp(candidateSize.columnSpan, layout.minWidth, layout.maxWidth);
-      candidateSize.rowSpan = clamp(candidateSize.rowSpan, layout.minHeight, layout.maxHeight);
-      if (candidateSize.columnSpan !== beforeW && direction.includes('w')) {
-        candidatePos.column =
-          this.startGridPosition.column +
-          (this.startGridSize.columnSpan - candidateSize.columnSpan);
+      const beforeW = candidateSize.width;
+      const beforeH = candidateSize.height;
+      candidateSize.width = clamp(candidateSize.width, layout.minWidth, layout.maxWidth);
+      candidateSize.height = clamp(candidateSize.height, layout.minHeight, layout.maxHeight);
+      if (candidateSize.width !== beforeW && direction.includes('w')) {
+        candidatePos.x = this.startPosition.x + (this.startSize.width - candidateSize.width);
       }
-      if (candidateSize.rowSpan !== beforeH && direction.includes('n')) {
-        candidatePos.row =
-          this.startGridPosition.row + (this.startGridSize.rowSpan - candidateSize.rowSpan);
+      if (candidateSize.height !== beforeH && direction.includes('n')) {
+        candidatePos.y = this.startPosition.y + (this.startSize.height - candidateSize.height);
       }
     }
 
@@ -770,25 +757,25 @@ export class DragManager extends EventEmitter {
     for (const b of moving) {
       const d = b.getData();
       const targetPos: GridPosition = {
-        ...d.gridPosition,
-        column: d.gridPosition.column + delta.dcol,
-        row: d.gridPosition.row + delta.drow,
-        zIndex: d.gridPosition.zIndex,
+        ...d.position,
+        x: d.position.x + delta.dcol,
+        y: d.position.y + delta.drow,
+        zIndex: d.position.zIndex,
       };
       const others = existing.filter((e) => e.id !== d.id);
       const ok =
-        (allow || !this.grid.checkGridCollision(targetPos, d.gridSize, d.id, others)) &&
-        this.grid.isValidGridPosition(targetPos, d.gridSize);
+        (allow || !this.grid.checkGridCollision(targetPos, d.size, d.id, others)) &&
+        this.grid.isValidGridPosition(targetPos, d.size);
       if (!ok) return; // 하나라도 불가하면 전체 취소
     }
 
     // 적용: movable=true 인 것만 이동
     for (const b of moving) {
       const d = b.getData();
-      b.setGridPosition({
-        ...d.gridPosition,
-        column: d.gridPosition.column + delta.dcol,
-        row: d.gridPosition.row + delta.drow,
+      b.setPosition({
+        ...d.position,
+        x: d.position.x + delta.dcol,
+        y: d.position.y + delta.drow,
       });
     }
 
@@ -799,9 +786,9 @@ export class DragManager extends EventEmitter {
         : moving[0] || null;
     if (anchor) {
       const oldPosition = {
-        column: anchor.getData().gridPosition.column - delta.dcol,
-        row: anchor.getData().gridPosition.row - delta.drow,
-        zIndex: anchor.getData().gridPosition.zIndex,
+        x: anchor.getData().position.x - delta.dcol,
+        y: anchor.getData().position.y - delta.drow,
+        zIndex: anchor.getData().position.zIndex,
       } as GridPosition;
       this.emit('block:moved', { block: anchor.getData(), oldPosition });
     }

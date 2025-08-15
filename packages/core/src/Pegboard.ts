@@ -4,7 +4,7 @@ import { Block } from './Block';
 import { Grid } from './Grid';
 import { DragManager } from './DragManager';
 import { EventEmitter } from './EventEmitter';
-import { generateId, createElement, deepClone } from './utils';
+import { generateId, deepClone } from './utils';
 
 export class Pegboard extends EventEmitter {
   private container: HTMLElement;
@@ -84,11 +84,11 @@ export class Pegboard extends EventEmitter {
     const ordered = blocks.slice().sort((a, b) => {
       const ad = a.getData();
       const bd = b.getData();
-      if (ad.gridPosition.row !== bd.gridPosition.row) {
-        return ad.gridPosition.row - bd.gridPosition.row;
+      if (ad.position.y !== bd.position.y) {
+        return ad.position.y - bd.position.y;
       }
-      if (ad.gridPosition.column !== bd.gridPosition.column) {
-        return ad.gridPosition.column - bd.gridPosition.column;
+      if (ad.position.x !== bd.position.x) {
+        return ad.position.x - bd.position.x;
       }
       return 0;
     });
@@ -96,20 +96,20 @@ export class Pegboard extends EventEmitter {
     // 순서대로 격자에 빈칸 없이 채우기
     const placed: {
       id: string;
-      gridPosition: CoreTypes.GridPosition;
-      gridSize: CoreTypes.GridSize;
+      position: CoreTypes.GridPosition;
+      size: CoreTypes.GridSize;
     }[] = [];
     const targetPositions = new Map<string, CoreTypes.GridPosition>();
     for (const b of ordered) {
       const d = b.getData();
-      const pos = this.grid.findAvailablePosition(d.gridSize, placed);
+      const pos = this.grid.findAvailablePosition(d.size, placed);
       const finalPos: CoreTypes.GridPosition = {
-        column: pos.column,
-        row: pos.row,
-        zIndex: d.gridPosition.zIndex,
+        x: pos.x,
+        y: pos.y,
+        zIndex: d.position.zIndex,
       };
       targetPositions.set(d.id, finalPos);
-      placed.push({ id: d.id, gridPosition: finalPos, gridSize: d.gridSize });
+      placed.push({ id: d.id, position: finalPos, size: d.size });
     }
 
     // 애니메이션 적용(FLIP)
@@ -117,7 +117,7 @@ export class Pegboard extends EventEmitter {
     ordered.forEach((b) => {
       const d = b.getData();
       const to = targetPositions.get(d.id)!;
-      if (to.column === d.gridPosition.column && to.row === d.gridPosition.row) return;
+      if (to.x === d.position.x && to.y === d.position.y) return;
       this.flipMove(b, to, duration);
     });
   }
@@ -126,7 +126,7 @@ export class Pegboard extends EventEmitter {
     const el = block.getElement();
     const first = el.getBoundingClientRect();
     // 최종 상태 적용
-    block.setGridPosition(to);
+    block.setPosition(to);
     const last = el.getBoundingClientRect();
     const dx = first.left - last.left;
     const dy = first.top - last.top;
@@ -204,45 +204,40 @@ export class Pegboard extends EventEmitter {
 
     // plugin.defaultLayout(x,y,width,height) -> gridPosition + gridSize 변환
     const layout = plugin?.defaultLayout;
-    const defaultGridSize = layout
-      ? { columnSpan: layout.width, rowSpan: layout.height }
-      : { columnSpan: 2, rowSpan: 2 };
+    const defaultSize = layout
+      ? { width: layout.width, height: layout.height }
+      : { width: 2, height: 2 };
 
     const existingBlocks = Array.from(this.blocks.values()).map((b) => b.getData());
 
-    const initialGridSize = data.gridSize || defaultGridSize;
+    const initialSize = data.size || defaultSize;
     // defaultLayout 제약에 맞게 초기 size clamp
-    let clampedGridSize = { ...initialGridSize };
+    let clampedSize = { ...initialSize };
     if (layout) {
       const clamp = (val: number, min?: number, max?: number) => {
         if (min !== undefined) val = Math.max(min, val);
         if (max !== undefined) val = Math.min(max, val);
         return val;
       };
-      clampedGridSize.columnSpan = clamp(
-        clampedGridSize.columnSpan,
-        layout.minWidth,
-        layout.maxWidth,
-      );
-      clampedGridSize.rowSpan = clamp(clampedGridSize.rowSpan, layout.minHeight, layout.maxHeight);
+      clampedSize.width = clamp(clampedSize.width, layout.minWidth, layout.maxWidth);
+      clampedSize.height = clamp(clampedSize.height, layout.minHeight, layout.maxHeight);
     }
-    const gridPosition =
-      data.gridPosition ||
+    const position =
+      data.position ||
       (layout
-        ? { column: layout.x, row: layout.y, zIndex: this.nextZIndex }
-        : this.grid.findAvailablePosition(clampedGridSize, existingBlocks));
+        ? { x: layout.x, y: layout.y, zIndex: this.nextZIndex }
+        : this.grid.findAvailablePosition(clampedSize, existingBlocks));
 
     const blockData: CoreTypes.BlockData = {
       id: data.id || generateId(),
       type: data.type || 'default',
-      gridPosition: {
-        column: gridPosition.column,
-        row: gridPosition.row,
-        zIndex: gridPosition.zIndex ?? this.nextZIndex++,
+      position: {
+        x: position.x,
+        y: position.y,
+        zIndex: position.zIndex ?? this.nextZIndex++,
       },
-      gridSize: clampedGridSize,
+      size: clampedSize,
       attributes: { ...(plugin?.defaultAttributes || {}), ...(data.attributes || {}) },
-      groupId: data.groupId,
       movable: data.movable,
       resizable: data.resizable,
     };
@@ -294,54 +289,44 @@ export class Pegboard extends EventEmitter {
     const currentData = block.getData();
     const newData = { ...currentData, ...updates } as CoreTypes.BlockData;
 
-    if (updates.gridPosition) {
+    if (updates.position) {
       const existingBlocks = Array.from(this.blocks.values())
         .map((b) => b.getData())
         .filter((b) => b.id !== id);
 
       const noCollision =
         this.allowOverlap ||
-        !this.grid.checkGridCollision(
-          updates.gridPosition,
-          currentData.gridSize,
-          id,
-          existingBlocks,
-        );
-      if (
-        noCollision &&
-        this.grid.isValidGridPosition(updates.gridPosition, currentData.gridSize)
-      ) {
-        block.setGridPosition({
-          ...updates.gridPosition,
-          zIndex: updates.gridPosition.zIndex ?? currentData.gridPosition.zIndex,
+        !this.grid.checkGridCollision(updates.position, currentData.size, id, existingBlocks);
+      if (noCollision && this.grid.isValidGridPosition(updates.position, currentData.size)) {
+        block.setPosition({
+          ...updates.position,
+          zIndex: updates.position.zIndex ?? currentData.position.zIndex,
         });
       }
     }
 
-    if (updates.gridSize) {
+    if (updates.size) {
       const existingBlocks = Array.from(this.blocks.values())
         .map((b) => b.getData())
         .filter((b) => b.id !== id);
 
       const plugin = this.plugins.get(currentData.type);
       const layout = plugin?.defaultLayout;
-      let candidateSize = { ...updates.gridSize };
+      let candidateSize = { ...updates.size };
       if (layout) {
-        if (layout.minWidth)
-          candidateSize.columnSpan = Math.max(layout.minWidth, candidateSize.columnSpan);
+        if (layout.minWidth) candidateSize.width = Math.max(layout.minWidth, candidateSize.width);
         if (layout.minHeight)
-          candidateSize.rowSpan = Math.max(layout.minHeight, candidateSize.rowSpan);
-        if (layout.maxWidth)
-          candidateSize.columnSpan = Math.min(layout.maxWidth, candidateSize.columnSpan);
+          candidateSize.height = Math.max(layout.minHeight, candidateSize.height);
+        if (layout.maxWidth) candidateSize.width = Math.min(layout.maxWidth, candidateSize.width);
         if (layout.maxHeight)
-          candidateSize.rowSpan = Math.min(layout.maxHeight, candidateSize.rowSpan);
+          candidateSize.height = Math.min(layout.maxHeight, candidateSize.height);
       }
 
       const noCollision =
         this.allowOverlap ||
-        !this.grid.checkGridCollision(currentData.gridPosition, candidateSize, id, existingBlocks);
-      if (noCollision && this.grid.isValidGridPosition(currentData.gridPosition, candidateSize)) {
-        block.setGridSize(candidateSize);
+        !this.grid.checkGridCollision(currentData.position, candidateSize, id, existingBlocks);
+      if (noCollision && this.grid.isValidGridPosition(currentData.position, candidateSize)) {
+        block.setSize(candidateSize);
       }
     }
 
@@ -374,7 +359,7 @@ export class Pegboard extends EventEmitter {
     }
 
     this.emit('block:updated', { block: newData });
-    if (updates.gridPosition || updates.gridSize) {
+    if (updates.position || updates.size) {
       this.autoArrangeIfNeeded();
     }
     return true;
@@ -387,10 +372,6 @@ export class Pegboard extends EventEmitter {
 
   getAllBlocks(): CoreTypes.BlockData[] {
     return Array.from(this.blocks.values()).map((block) => deepClone(block.getData()));
-  }
-
-  getBlocksByGroup(groupId: string): CoreTypes.BlockData[] {
-    return this.getAllBlocks().filter((block) => block.groupId === groupId);
   }
 
   selectBlock(id: string | null): void {
@@ -415,13 +396,13 @@ export class Pegboard extends EventEmitter {
     if (!blockData) return null;
 
     const existingBlocks = Array.from(this.blocks.values()).map((b) => b.getData());
-    const newGridPosition = this.grid.findAvailablePosition(blockData.gridSize, existingBlocks);
+    const newPosition = this.grid.findAvailablePosition(blockData.size, existingBlocks);
 
     const duplicateData = {
       ...blockData,
       id: generateId(),
-      gridPosition: {
-        ...newGridPosition,
+      position: {
+        ...newPosition,
         zIndex: this.nextZIndex++,
       },
     };
@@ -500,17 +481,16 @@ export class Pegboard extends EventEmitter {
       this.addBlock({
         id: b.id,
         type: b.type,
-        gridPosition: b.gridPosition,
-        gridSize: b.gridSize,
+        position: b.position,
+        size: b.size,
         attributes: b.attributes,
-        groupId: b.groupId,
         movable: b.movable,
         resizable: b.resizable,
       });
     });
 
     // nextZIndex 재계산: 현재 블록들 중 최대값 + 1
-    const maxZ = this.getAllBlocks().reduce((m, d) => Math.max(m, d.gridPosition.zIndex), 0);
+    const maxZ = this.getAllBlocks().reduce((m, d) => Math.max(m, d.position.zIndex), 0);
     (this as any).nextZIndex = Math.max(this.nextZIndex, maxZ + 1);
   }
 
@@ -523,8 +503,8 @@ export class Pegboard extends EventEmitter {
     if (!block) return false;
 
     const blockData = block.getData();
-    block.setGridPosition({
-      ...blockData.gridPosition,
+    block.setPosition({
+      ...blockData.position,
       zIndex: this.nextZIndex++,
     });
 
@@ -536,10 +516,10 @@ export class Pegboard extends EventEmitter {
     if (!block) return false;
 
     const blockData = block.getData();
-    const minZIndex = Math.min(...this.getAllBlocks().map((b) => b.gridPosition.zIndex));
+    const minZIndex = Math.min(...this.getAllBlocks().map((b) => b.position.zIndex));
 
-    block.setGridPosition({
-      ...blockData.gridPosition,
+    block.setPosition({
+      ...blockData.position,
       zIndex: Math.max(0, minZIndex - 1),
     });
 
@@ -556,9 +536,9 @@ export class Pegboard extends EventEmitter {
       .filter((b) => b.id !== id);
     const noCollision =
       this.allowOverlap ||
-      !this.grid.checkGridCollision(gridPosition, blockData.gridSize, id, existingBlocks);
-    if (noCollision && this.grid.isValidGridPosition(gridPosition, blockData.gridSize)) {
-      block.setGridPosition(gridPosition);
+      !this.grid.checkGridCollision(gridPosition, blockData.size, id, existingBlocks);
+    if (noCollision && this.grid.isValidGridPosition(gridPosition, blockData.size)) {
+      block.setPosition(gridPosition);
       this.autoArrangeIfNeeded();
       return true;
     }
@@ -578,21 +558,17 @@ export class Pegboard extends EventEmitter {
     const layout = plugin?.defaultLayout;
     let candidateSize = { ...gridSize };
     if (layout) {
-      if (layout.minWidth)
-        candidateSize.columnSpan = Math.max(layout.minWidth, candidateSize.columnSpan);
-      if (layout.minHeight)
-        candidateSize.rowSpan = Math.max(layout.minHeight, candidateSize.rowSpan);
-      if (layout.maxWidth)
-        candidateSize.columnSpan = Math.min(layout.maxWidth, candidateSize.columnSpan);
-      if (layout.maxHeight)
-        candidateSize.rowSpan = Math.min(layout.maxHeight, candidateSize.rowSpan);
+      if (layout.minWidth) candidateSize.width = Math.max(layout.minWidth, candidateSize.width);
+      if (layout.minHeight) candidateSize.height = Math.max(layout.minHeight, candidateSize.height);
+      if (layout.maxWidth) candidateSize.width = Math.min(layout.maxWidth, candidateSize.width);
+      if (layout.maxHeight) candidateSize.height = Math.min(layout.maxHeight, candidateSize.height);
     }
 
     const noCollision =
       this.allowOverlap ||
-      !this.grid.checkGridCollision(blockData.gridPosition, candidateSize, id, existingBlocks);
-    if (noCollision && this.grid.isValidGridPosition(blockData.gridPosition, candidateSize)) {
-      block.setGridSize(candidateSize);
+      !this.grid.checkGridCollision(blockData.position, candidateSize, id, existingBlocks);
+    if (noCollision && this.grid.isValidGridPosition(blockData.position, candidateSize)) {
+      block.setSize(candidateSize);
       this.autoArrangeIfNeeded();
       return true;
     }
