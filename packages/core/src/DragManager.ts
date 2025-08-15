@@ -383,8 +383,37 @@ export class DragManager extends EventEmitter {
     const config = this.grid.getConfig();
     const rect = this.container.getBoundingClientRect();
 
-    const rawLeft = event.clientX - rect.left - this.pointerDownOffset.dx;
-    const rawTop = event.clientY - rect.top - this.pointerDownOffset.dy;
+    // 마우스 기준 원시 좌상단 (컨테이너 좌표계)
+    let rawLeft = event.clientX - rect.left - this.pointerDownOffset.dx;
+    let rawTop = event.clientY - rect.top - this.pointerDownOffset.dy;
+
+    // 컨테이너 패딩 및 블록 픽셀 크기를 고려하여 프리뷰가 경계를 넘지 않도록 클램핑
+    const styles = getComputedStyle(this.container);
+    const paddingLeft = parseFloat(styles.paddingLeft) || 0;
+    const paddingTop = parseFloat(styles.paddingTop) || 0;
+    const paddingRight = parseFloat(styles.paddingRight) || 0;
+    const paddingBottom = parseFloat(styles.paddingBottom) || 0;
+
+    const innerWidth = rect.width - paddingLeft - paddingRight;
+    const innerHeight = rect.height - paddingTop - paddingBottom;
+
+    const anchorSize = this.selectedBlock.getData().size;
+    const blockPixelWidth = anchorSize.width * (this.dragState.columnWidth || 0) +
+      Math.max(0, anchorSize.width - 1) * config.gap;
+    const blockPixelHeight = anchorSize.height * config.rowHeight +
+      Math.max(0, anchorSize.height - 1) * config.gap;
+
+    const minLeft = paddingLeft;
+    const minTop = paddingTop;
+    const maxLeft = paddingLeft + Math.max(0, innerWidth - blockPixelWidth);
+    // rows 미설정 시 세로는 상단만 클램핑 (컨테이너 높이가 가변일 수 있음)
+    const hasRowCap = !!config.rows && config.rows > 0;
+    const maxTop = hasRowCap
+      ? paddingTop + Math.max(0, innerHeight - blockPixelHeight)
+      : Infinity;
+
+    rawLeft = Math.max(minLeft, Math.min(maxLeft, rawLeft));
+    rawTop = Math.max(minTop, Math.min(maxTop, rawTop));
 
     // 시각적 이동: transform 사용 (grid-position 즉시 변경 안함)
     const deltaX = rawLeft - this.startBlockPixelPos.left;
@@ -414,13 +443,11 @@ export class DragManager extends EventEmitter {
     }
 
     // 스냅 후보 grid 좌표 계산
-    const gridX = Math.round(rawLeft / this.dragState.cellTotalWidth!) + 1; // 1-indexed
-    const gridY = Math.round(rawTop / this.dragState.rowUnit!) + 1;
+    const gridX = Math.round((rawLeft - paddingLeft) / (this.dragState.cellTotalWidth!)) + 1; // 1-indexed
+    const gridY = Math.round((rawTop - paddingTop) / (this.dragState.rowUnit!)) + 1;
 
-    // 후보 위치를 열/행 범위 내로 클램핑. 가시성 향상을 위해 앵커 블록의 크기를 고려
-    const anchorSize = this.selectedBlock.getData().size;
+    // 후보 위치를 열/행 범위 내로 클램핑. 앵커 블록의 크기를 고려
     const maxXStart = Math.max(1, config.columns - anchorSize.width + 1);
-    const hasRowCap = !!config.rows && config.rows > 0;
     const maxYStart = hasRowCap ? Math.max(1, (config.rows as number) - anchorSize.height + 1) : Infinity;
 
     const candidate: GridPosition = {
