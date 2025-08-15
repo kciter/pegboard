@@ -12,7 +12,7 @@ const meta: Meta<LassoArgs> = {
     lassoSelection: { control: 'boolean' },
   },
   args: {
-    lassoSelection: false,
+    lassoSelection: true,
   },
 };
 export default meta;

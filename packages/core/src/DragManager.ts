@@ -241,14 +241,21 @@ export class DragManager extends EventEmitter {
 
   private handleLassoStart(event: MouseEvent): void {
     if (!this.isEditorMode()) return; // 뷰어 모드에서는 차단
-    if (!(this.getLassoEnabled && this.getLassoEnabled())) return; // 옵션 비활성 시 라쏘 차단
     const target = event.target as HTMLElement;
     const onBlock = target.closest('.pegboard-block');
     if (onBlock) return; // 블록 위에서는 기존 처리로 이동/리사이즈
     if (event.button !== 0) return;
+
+    const enabled = this.getLassoEnabled ? !!this.getLassoEnabled() : false;
+    if (!enabled) {
+      // 라쏘 비활성: 빈 공간 클릭 시 선택 해제
+      this.selectBlock(null);
+      return;
+    }
+
     this.isLassoSelecting = true;
     this.lassoAdditive = !!event.shiftKey;
-    // 라쏘 시작 시 항상 기존 선택을 스냅샷으로 보관하여 중간에 Shift 토글에도 대응
+    // 라쏘 시작 시 기존 선택을 스냅샷으로 보관(Shift 추가 선택 지원)
     this.lassoBaseSelection = new Set(this.selection);
     const rect = this.container.getBoundingClientRect();
     this.lassoStart = { x: event.clientX - rect.left, y: event.clientY - rect.top };
@@ -298,6 +305,26 @@ export class DragManager extends EventEmitter {
 
   private finalizeLasso() {
     if (!this.isLassoSelecting) return;
+
+    // 클릭(이동 거의 없음) 시에는 선택 해제로 처리
+    if (this.selectionBoxEl) {
+      const w = parseFloat(this.selectionBoxEl.style.width || '0');
+      const h = parseFloat(this.selectionBoxEl.style.height || '0');
+      if (w < 2 && h < 2) {
+        // 선택 해제 및 UI 정리
+        this.selectBlock(null);
+        this.selectionBoxEl.remove();
+        this.selectionBoxEl = null;
+        this.isLassoSelecting = false;
+        this.lassoStart = null;
+        this.lassoAdditive = false;
+        this.lassoBaseSelection = null;
+        return; // 추가 이벤트 중복 방지
+      }
+    }
+
+    // 드래그 박스 기준으로 최종 선택 재계산 후 종료
+    this.recomputeLassoSelectionFromBox();
     this.isLassoSelecting = false;
     if (this.selectionBoxEl) {
       this.selectionBoxEl.remove();
