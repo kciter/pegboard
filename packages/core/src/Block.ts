@@ -150,8 +150,8 @@ export class Block {
     }
   }
 
-  setEditorMode(isEditor: boolean): void {
-    if (isEditor) {
+  setEditable(isEditable: boolean): void {
+    if (isEditable) {
       this.element.classList.add('pegboard-block-editor');
       // movable=false면 move 커서를 강제하지 않음
       this.element.style.cursor = this.data.movable === false ? 'default' : 'move';

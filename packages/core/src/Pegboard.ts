@@ -225,7 +225,7 @@ export class Pegboard extends EventEmitter {
     };
 
     const block = new Block(blockData);
-    block.setEditorMode(this.editable);
+    block.setEditable(this.editable);
 
     this.blocks.set(blockData.id, block);
     this.container.appendChild(block.getElement());
@@ -316,7 +316,7 @@ export class Pegboard extends EventEmitter {
     if (updates.movable !== undefined || updates.resizable !== undefined) {
       block.setInteractionFlags({ movable: updates.movable, resizable: updates.resizable });
       // 에디터 모드인 경우 커서/핸들 UI가 최신 상태가 되도록 재적용
-      block.setEditorMode(this.editable);
+      block.setEditable(this.editable);
       // 현재 선택 중이면 핸들을 재생성하기 위해 재선택 처리
       const selected = this.dragManager.getSelectedBlock();
       if (selected && selected.getData().id === id) {
@@ -395,7 +395,7 @@ export class Pegboard extends EventEmitter {
     this.container.classList.toggle('pegboard-viewer-mode', !this.editable);
 
     this.blocks.forEach((block) => {
-      block.setEditorMode(this.editable);
+      block.setEditable(this.editable);
     });
 
     if (this.editable) {
