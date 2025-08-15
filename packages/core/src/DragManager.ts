@@ -887,6 +887,35 @@ export class DragManager extends EventEmitter {
       }
     }
 
+    // 그리드 경계로 클램프: 정해진 영역을 넘지 않도록
+    const cfg = this.grid.getConfig();
+    const columns = cfg.columns;
+    const hasRowCap = !!cfg.rows && cfg.rows > 0;
+    const maxRows = hasRowCap ? (cfg.rows as number) : Infinity;
+
+    // 동쪽 확장: 우측 경계 내로 폭 제한
+    if (direction.includes('e')) {
+      const maxWidth = Math.max(1, columns - candidatePos.x + 1);
+      candidateSize.width = Math.min(candidateSize.width, maxWidth);
+    }
+    // 서쪽 확장: 우측 끝 고정(endXFixed), 좌측 경계 내로 위치/폭 재계산
+    if (direction.includes('w')) {
+      const endXFixed = this.startPosition.x + this.startSize.width - 1;
+      candidatePos.x = Math.max(1, Math.min(candidatePos.x, endXFixed));
+      candidateSize.width = Math.max(1, endXFixed - candidatePos.x + 1);
+    }
+    // 남쪽 확장: 행 상한이 있을 때만 높이 제한
+    if (direction.includes('s') && hasRowCap) {
+      const maxHeight = Math.max(1, (maxRows as number) - candidatePos.y + 1);
+      candidateSize.height = Math.min(candidateSize.height, maxHeight);
+    }
+    // 북쪽 확장: 하단 끝 고정(endYFixed), 상단 경계 내로 위치/높이 재계산
+    if (direction.includes('n')) {
+      const endYFixed = this.startPosition.y + this.startSize.height - 1;
+      candidatePos.y = Math.max(1, Math.min(candidatePos.y, endYFixed));
+      candidateSize.height = Math.max(1, endYFixed - candidatePos.y + 1);
+    }
+
     const allowOverlap = this.getAllowOverlap ? this.getAllowOverlap() : false;
     const existingBlocks = this.getAllBlocks()
       .map((b) => b.getData())
