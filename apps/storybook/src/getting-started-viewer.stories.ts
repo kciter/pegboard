@@ -12,17 +12,36 @@ type Story = StoryObj;
 export const ViewerMode: Story = {
   render: () => {
     const root = document.createElement('div');
-    root.style.width = '100%';
-    root.style.height = '480px';
+
+    const inspector = document.createElement('div');
+    inspector.style.width = '100%';
+    inspector.style.height = '80px';
+    inspector.innerHTML = `
+      <label for="editable">Editable:</label>
+      <input type="checkbox" id="editable" />
+    `;
+
+    const editableCheckbox = inspector.querySelector<HTMLInputElement>('#editable');
+
+    editableCheckbox?.addEventListener('change', () => {
+      pegboard.setEditable(editableCheckbox.checked);
+    });
+
+    const container = document.createElement('div');
+    container.style.width = '100%';
+    container.style.height = '480px';
+
+    root.appendChild(inspector);
+    root.appendChild(container);
 
     const boardHost = document.createElement('div');
     boardHost.style.height = '100%';
-    root.appendChild(boardHost);
+    container.appendChild(boardHost);
 
     const pegboard = new Pegboard({
       container: boardHost,
       grid: { columns: 12, rowHeight: 60, gap: 8 },
-      mode: 'viewer',
+      editable: false,
       allowOverlap: false,
     });
 

@@ -38,10 +38,10 @@ export interface GridConfig {
 export interface PegboardConfig {
   container: HTMLElement;
   grid: GridConfig;
-  mode: 'editor' | 'viewer';
-  allowOverlap?: boolean; // 블럭 겹침 허용 여부 (기본 false)
-  autoArrange?: boolean; // 드롭 시 자동 정렬(패킹) 여부
-  arrangeAnimationMs?: number; // 자동 정렬 애니메이션 시간(ms)
+  editable?: boolean;
+  allowOverlap?: boolean;
+  autoArrange?: boolean;
+  arrangeAnimationMs?: number;
 }
 
 export interface DragState {

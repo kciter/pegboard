@@ -12,7 +12,7 @@ export class Pegboard extends EventEmitter {
   private dragManager!: DragManager;
   private blocks: Map<string, Block> = new Map();
   private plugins: Map<string, AnyBlockExtension> = new Map();
-  private mode: 'editor' | 'viewer';
+  private editable: boolean = true;
   private nextZIndex: number = 1;
   private allowOverlap: boolean;
   private autoArrange: boolean;
@@ -23,14 +23,14 @@ export class Pegboard extends EventEmitter {
 
     this.container = config.container;
     this.grid = new Grid(config.grid);
-    this.mode = config.mode;
+    // this.editable = config.editable ?? true;
     this.allowOverlap = !!config.allowOverlap;
     this.autoArrange = !!config.autoArrange;
     this.arrangeAnimationMs = config.arrangeAnimationMs ?? 220;
 
     this.setupContainer();
     this.setupDragManager();
-    this.updateMode();
+    this.setEditable(config.editable ?? true);
   }
 
   private setupContainer(): void {
@@ -145,24 +145,6 @@ export class Pegboard extends EventEmitter {
     el.addEventListener('transitionend', cleanup);
   }
 
-  private updateMode(): void {
-    this.container.classList.toggle('pegboard-editor-mode', this.mode === 'editor');
-    this.container.classList.toggle('pegboard-viewer-mode', this.mode === 'viewer');
-
-    this.blocks.forEach((block) => {
-      block.setEditorMode(this.mode === 'editor');
-    });
-
-    if (this.mode === 'editor') {
-      this.showGridLines();
-    } else {
-      this.hideGridLines();
-      this.dragManager.selectBlock(null);
-    }
-
-    this.emit('mode:changed', { mode: this.mode });
-  }
-
   private showGridLines(): void {
     this.grid.renderGridLines(this.container);
   }
@@ -243,16 +225,16 @@ export class Pegboard extends EventEmitter {
     };
 
     const block = new Block(blockData);
-    block.setEditorMode(this.mode === 'editor');
+    block.setEditorMode(this.editable);
 
     this.blocks.set(blockData.id, block);
     this.container.appendChild(block.getElement());
 
     if (plugin) {
-      plugin.onCreate?.(blockData as any, block.getContentElement(), this.mode === 'editor');
-      plugin.onBeforeRender?.(blockData as any, block.getContentElement(), this.mode === 'editor');
-      plugin.render(blockData as any, block.getContentElement(), this.mode === 'editor');
-      plugin.onAfterRender?.(blockData as any, block.getContentElement(), this.mode === 'editor');
+      plugin.onCreate?.(blockData as any, block.getContentElement(), this.editable);
+      plugin.onBeforeRender?.(blockData as any, block.getContentElement(), this.editable);
+      plugin.render(blockData as any, block.getContentElement(), this.editable);
+      plugin.onAfterRender?.(blockData as any, block.getContentElement(), this.editable);
     }
 
     this.emit('block:added', { block: blockData });
@@ -334,7 +316,7 @@ export class Pegboard extends EventEmitter {
     if (updates.movable !== undefined || updates.resizable !== undefined) {
       block.setInteractionFlags({ movable: updates.movable, resizable: updates.resizable });
       // 에디터 모드인 경우 커서/핸들 UI가 최신 상태가 되도록 재적용
-      block.setEditorMode(this.mode === 'editor');
+      block.setEditorMode(this.editable);
       // 현재 선택 중이면 핸들을 재생성하기 위해 재선택 처리
       const selected = this.dragManager.getSelectedBlock();
       if (selected && selected.getData().id === id) {
@@ -347,14 +329,10 @@ export class Pegboard extends EventEmitter {
 
       const plugin = this.plugins.get(currentData.type);
       if (plugin) {
-        plugin.onBeforeRender?.(newData as any, block.getContentElement(), this.mode === 'editor');
-        plugin.render(newData as any, block.getContentElement(), this.mode === 'editor');
-        plugin.onUpdateAttributes?.(
-          newData as any,
-          block.getContentElement(),
-          this.mode === 'editor',
-        );
-        plugin.onAfterRender?.(newData as any, block.getContentElement(), this.mode === 'editor');
+        plugin.onBeforeRender?.(newData as any, block.getContentElement(), this.editable);
+        plugin.render(newData as any, block.getContentElement(), this.editable);
+        plugin.onUpdateAttributes?.(newData as any, block.getContentElement(), this.editable);
+        plugin.onAfterRender?.(newData as any, block.getContentElement(), this.editable);
       }
     }
 
@@ -381,7 +359,7 @@ export class Pegboard extends EventEmitter {
     }
 
     const block = this.blocks.get(id);
-    if (block && this.mode === 'editor') {
+    if (block && this.editable) {
       this.dragManager.selectBlock(block);
     }
   }
@@ -410,22 +388,33 @@ export class Pegboard extends EventEmitter {
     return this.addBlock(duplicateData);
   }
 
-  setMode(mode: 'editor' | 'viewer'): void {
-    if (this.mode === mode) return;
+  setEditable(editable: boolean): void {
+    this.editable = editable;
 
-    this.mode = mode;
-    this.updateMode();
+    this.container.classList.toggle('pegboard-editor-mode', this.editable);
+    this.container.classList.toggle('pegboard-viewer-mode', !this.editable);
+
+    this.blocks.forEach((block) => {
+      block.setEditorMode(this.editable);
+    });
+
+    if (this.editable) {
+      this.showGridLines();
+    } else {
+      this.hideGridLines();
+      this.dragManager.selectBlock(null);
+    }
   }
 
-  getMode(): 'editor' | 'viewer' {
-    return this.mode;
+  getEditable(): boolean {
+    return this.editable;
   }
 
   setGridConfig(config: Partial<CoreTypes.GridConfig>): void {
     this.grid.updateConfig(config);
     this.grid.applyGridStyles(this.container);
 
-    if (this.mode === 'editor') {
+    if (this.editable) {
       this.showGridLines();
     }
 

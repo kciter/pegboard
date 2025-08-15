@@ -22,7 +22,6 @@ export const Basic: Story = {
     const pegboard = new Pegboard({
       container: boardHost,
       grid: { columns: 12, rowHeight: 60, gap: 8 },
-      mode: 'editor',
       allowOverlap: false,
       autoArrange: false,
     });
