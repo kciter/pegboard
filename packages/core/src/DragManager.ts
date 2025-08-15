@@ -45,6 +45,9 @@ export class DragManager extends EventEmitter {
     private getPlugin?: (type: string) => AnyBlockExtension | undefined,
     private getDragReflow?: () => DragReflowStrategy,
     private getLassoEnabled?: () => boolean,
+    private getKeyboardMove?: () => boolean,
+    private getKeyboardDelete?: () => boolean,
+    private onDeleteSelected?: (ids: string[]) => void,
   ) {
     super();
     this.setupEventListeners();
@@ -61,6 +64,13 @@ export class DragManager extends EventEmitter {
 
   private isEditorMode(): boolean {
     return this.container.classList.contains('pegboard-editor-mode');
+  }
+
+  private isTypingTarget(target: EventTarget | null): boolean {
+    const el = target as HTMLElement | null;
+    if (!el) return false;
+    const tag = el.tagName;
+    return el.isContentEditable || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
   }
 
   private computeCellMetrics() {
@@ -1006,7 +1016,41 @@ export class DragManager extends EventEmitter {
     }
     // 에디터 모드에서만 동작
     if (!this.container.classList.contains('pegboard-editor-mode')) return;
+    if (this.isTypingTarget(event.target)) return; // 입력 중엔 무시
+
+    const ids =
+      this.selection.size > 0
+        ? Array.from(this.selection)
+        : this.selectedBlock
+          ? [this.selectedBlock.getData().id]
+          : [];
+
+    // Delete / Backspace
+    if (event.key === 'Delete' || event.key === 'Backspace') {
+      const allowDelete = this.getKeyboardDelete ? !!this.getKeyboardDelete() : false;
+      if (!allowDelete) return;
+      if (ids.length === 0) return;
+      event.preventDefault();
+      // 선택 UI 해제
+      for (const id of ids) {
+        const b = this.getBlock(id);
+        if (b) b.setSelected(false);
+        this.selection.delete(id);
+      }
+      if (this.selectedBlock && ids.includes(this.selectedBlock.getData().id)) {
+        this.selectedBlock = null;
+      }
+      this.emit('selection:changed', { ids: Array.from(this.selection) });
+      // 삭제 콜백 호출
+      if (this.onDeleteSelected) this.onDeleteSelected(ids);
+      return;
+    }
+
     if (this.selection.size === 0) return;
+    // 방향키 이동: 옵션 체크
+    const allowMove = this.getKeyboardMove ? !!this.getKeyboardMove() : true;
+    if (!allowMove) return;
+
     let delta = { dcol: 0, drow: 0 };
     switch (event.key) {
       case 'ArrowLeft':

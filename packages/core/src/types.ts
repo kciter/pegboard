@@ -48,6 +48,8 @@ export interface PegboardConfig {
   dragReflow?: DragReflowStrategy;
   arrangePreview?: ArrangePreviewStrategy;
   lassoSelection?: boolean; // 라쏘 선택 허용 여부(기본 false)
+  keyboardMove?: boolean; // 방향키 이동 허용 여부(기본 true)
+  keyboardDelete?: boolean; // Delete/Backspace 삭제 허용 여부(기본 false)
 }
 
 export interface DragState {

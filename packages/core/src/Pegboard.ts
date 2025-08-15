@@ -21,6 +21,8 @@ export class Pegboard extends EventEmitter {
   private livePreviewPositions: Map<string, CoreTypes.GridPosition> | null = null;
   private dragReflow: CoreTypes.DragReflowStrategy = 'none';
   private lassoSelection: boolean = false;
+  private keyboardMove: boolean = true;
+  private keyboardDelete: boolean = false;
 
   constructor(config: CoreTypes.PegboardConfig) {
     super();
@@ -34,6 +36,8 @@ export class Pegboard extends EventEmitter {
     this.arrangePreview = config.arrangePreview ?? 'none';
     this.dragReflow = config.dragReflow ?? 'none';
     this.lassoSelection = !!config.lassoSelection; // 기본 false
+    this.keyboardMove = config.keyboardMove ?? true;
+    this.keyboardDelete = config.keyboardDelete ?? false;
 
     this.setupContainer();
     this.setupDragManager();
@@ -65,6 +69,9 @@ export class Pegboard extends EventEmitter {
       (type: string) => this.plugins.get(type),
       () => this.dragReflow,
       () => this.lassoSelection,
+      () => this.keyboardMove,
+      () => this.keyboardDelete,
+      (ids: string[]) => ids.forEach((id) => this.removeBlock(id)),
     );
 
     this.dragManager.on('block:moved', ({ block, oldPosition }) => {
@@ -692,6 +699,22 @@ export class Pegboard extends EventEmitter {
 
   getLassoSelection() {
     return this.lassoSelection;
+  }
+
+  setKeyboardMove(enabled: boolean) {
+    this.keyboardMove = !!enabled;
+  }
+
+  getKeyboardMove() {
+    return this.keyboardMove;
+  }
+
+  setKeyboardDelete(enabled: boolean) {
+    this.keyboardDelete = !!enabled;
+  }
+
+  getKeyboardDelete() {
+    return this.keyboardDelete;
   }
 
   destroy(): void {
