@@ -2,23 +2,13 @@ import type { Meta, StoryObj } from '@storybook/html';
 import { Pegboard } from '@pegboard/core';
 import { BoxBlock } from './blocks/box-block';
 
-interface DeleteBlockArgs {
-  keyboardDelete: boolean;
-}
-
-const meta: Meta<DeleteBlockArgs> = {
-  title: 'Interactions/Delete Block',
-  argTypes: {
-    keyboardDelete: { control: 'boolean' },
-  },
-  args: {
-    keyboardDelete: true,
-  },
+const meta: Meta = {
+  title: 'Interactions/Duplicate Block',
 };
 export default meta;
 
-export const DeleteBlock: StoryObj<DeleteBlockArgs> = {
-  render: (args) => {
+export const DuplicateBlock: StoryObj = {
+  render: () => {
     const root = document.createElement('div');
     root.style.width = '100%';
 
@@ -31,13 +21,13 @@ export const DeleteBlock: StoryObj<DeleteBlockArgs> = {
     addBtn.textContent = 'Add Block';
     addBtn.style.padding = '6px 10px';
 
-    const deleteBtn = document.createElement('button');
-    deleteBtn.textContent = 'Delete Selected';
-    deleteBtn.style.padding = '6px 10px';
-    deleteBtn.disabled = true;
+    const dupBtn = document.createElement('button');
+    dupBtn.textContent = 'Duplicate Selected';
+    dupBtn.style.padding = '6px 10px';
+    dupBtn.disabled = true;
 
     toolbar.appendChild(addBtn);
-    toolbar.appendChild(deleteBtn);
+    toolbar.appendChild(dupBtn);
     root.appendChild(toolbar);
 
     const container = document.createElement('div');
@@ -49,8 +39,6 @@ export const DeleteBlock: StoryObj<DeleteBlockArgs> = {
       editable: true,
       allowOverlap: false,
       autoArrange: false,
-      keyboardMove: false,
-      keyboardDelete: !!args.keyboardDelete,
     });
 
     pegboard.registerPlugin(new BoxBlock());
@@ -58,10 +46,10 @@ export const DeleteBlock: StoryObj<DeleteBlockArgs> = {
     let selectedIds: string[] = [];
     pegboard.on('selection:changed', ({ ids }) => {
       selectedIds = ids;
-      deleteBtn.disabled = ids.length === 0;
+      dupBtn.disabled = ids.length === 0;
     });
 
-    const colors = ['#ff7875', '#95de64', '#69c0ff'];
+    const colors = ['#ffa940', '#36cfc9', '#597ef7'];
     for (let i = 0; i < 3; i++) {
       pegboard.addBlock({
         type: 'box',
@@ -78,9 +66,16 @@ export const DeleteBlock: StoryObj<DeleteBlockArgs> = {
       });
     };
 
-    deleteBtn.onclick = () => {
+    dupBtn.onclick = () => {
       if (selectedIds.length === 0) return;
-      selectedIds.forEach((id) => pegboard.removeBlock(id));
+      // 여러 개 선택 시 모두 복제
+      for (const id of selectedIds) {
+        try {
+          pegboard.duplicateBlock(id);
+        } catch (e) {
+          alert((e as Error).message);
+        }
+      }
     };
 
     return root;

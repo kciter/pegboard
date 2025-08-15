@@ -30,13 +30,13 @@ export class Pegboard extends EventEmitter {
     this.container = config.container;
     this.grid = new Grid(config.grid);
     // this.editable = config.editable ?? true;
-    this.allowOverlap = !!config.allowOverlap;
-    this.autoArrange = !!config.autoArrange;
+    this.allowOverlap = config.allowOverlap ?? false;
+    this.autoArrange = config.autoArrange ?? false;
     this.arrangeAnimationMs = config.arrangeAnimationMs ?? 220;
     this.arrangePreview = config.arrangePreview ?? 'none';
     this.dragReflow = config.dragReflow ?? 'none';
-    this.lassoSelection = !!config.lassoSelection; // 기본 false
-    this.keyboardMove = config.keyboardMove ?? true;
+    this.lassoSelection = config.lassoSelection ?? false;
+    this.keyboardMove = config.keyboardMove ?? false;
     this.keyboardDelete = config.keyboardDelete ?? false;
 
     this.setupContainer();
@@ -611,6 +611,25 @@ export class Pegboard extends EventEmitter {
     return true;
   }
 
+  // 한 단계 앞으로 (z-index를 바로 위의 블록과 교환)
+  bringForward(id: string): boolean {
+    const list = Array.from(this.blocks.values());
+    if (list.length <= 1) return false;
+    const sorted = list
+      .map((b) => ({ b, z: b.getData().position.zIndex }))
+      .sort((a, b) => a.z - b.z);
+    const idx = sorted.findIndex((e) => e.b.getData().id === id);
+    if (idx === -1 || idx === sorted.length - 1) return false; // 이미 최상단
+    const current = sorted[idx]!.b;
+    const above = sorted[idx + 1]!.b;
+    const cz = current.getData().position.zIndex;
+    const az = above.getData().position.zIndex;
+    // swap
+    current.setPosition({ ...current.getData().position, zIndex: az });
+    above.setPosition({ ...above.getData().position, zIndex: cz });
+    return true;
+  }
+
   sendToBack(id: string): boolean {
     const block = this.blocks.get(id);
     if (!block) return false;
@@ -623,6 +642,25 @@ export class Pegboard extends EventEmitter {
       zIndex: Math.max(0, minZIndex - 1),
     });
 
+    return true;
+  }
+
+  // 한 단계 뒤로 (z-index를 바로 아래의 블록과 교환)
+  sendBackward(id: string): boolean {
+    const list = Array.from(this.blocks.values());
+    if (list.length <= 1) return false;
+    const sorted = list
+      .map((b) => ({ b, z: b.getData().position.zIndex }))
+      .sort((a, b) => a.z - b.z);
+    const idx = sorted.findIndex((e) => e.b.getData().id === id);
+    if (idx <= 0) return false; // 이미 최하단 또는 없음
+    const current = sorted[idx]!.b;
+    const below = sorted[idx - 1]!.b;
+    const cz = current.getData().position.zIndex;
+    const bz = below.getData().position.zIndex;
+    // swap
+    current.setPosition({ ...current.getData().position, zIndex: bz });
+    below.setPosition({ ...below.getData().position, zIndex: cz });
     return true;
   }
 
