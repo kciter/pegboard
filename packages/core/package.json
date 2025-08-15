@@ -26,12 +26,13 @@
   "files": ["dist"],
   "sideEffects": false,
   "scripts": {
-    "build": "node build.js",
-    "dev": "node build.js --watch",
-    "clean": "rm -rf dist"
+    "lint": "eslint --max-warnings 0 src",
+    "clean": "rimraf dist",
+    "typecheck": "tsc --noEmit",
+    "build": "internal-build"
   },
   "devDependencies": {
-    "esbuild": "^0.19.0",
+    "@pegboard/builder": "workspace:*",
     "@pegboard/eslint-config": "workspace:*",
     "@pegboard/typescript-config": "workspace:*",
     "eslint": "^9.18.0",

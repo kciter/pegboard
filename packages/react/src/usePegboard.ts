@@ -161,7 +161,7 @@ export function usePegboard(options: UsePegboardOptions): UsePegboardReturn {
       [],
     ),
     importData: useCallback((data: { blocks?: BlockData[]; grid?: GridConfig }) => {
-      pegboardRef.current?.importData(data);
+      pegboardRef.current?.importJSON(JSON.stringify(data));
     }, []),
   };
 }

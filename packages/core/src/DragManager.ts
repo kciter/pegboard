@@ -355,7 +355,9 @@ export class DragManager extends EventEmitter {
     // 단일만 선택된 경우 포커스 블럭 갱신, 아니면 해제(기존 포커스가 포함되어 있으면 유지)
     if (this.selection.size === 1) {
       const onlyId = Array.from(this.selection)[0];
-      this.selectedBlock = this.getBlock(onlyId) || null;
+      if (onlyId) {
+        this.selectedBlock = this.getBlock(onlyId) || null;
+      }
     } else if (this.selectedBlock && !this.selection.has(this.selectedBlock.getData().id)) {
       this.selectedBlock = null;
     }
