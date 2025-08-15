@@ -9,6 +9,13 @@ export class Block {
   constructor(private data: BlockData) {
     this.element = this.createElement();
     this.contentElement = createElement('div', 'pegboard-block-content', this.element);
+
+    // 기본 콘텐츠 컨테이너 스타일: 플러그인에서 100% 높이/절대배치 등을 안정적으로 사용하도록
+    this.contentElement.style.position = 'relative';
+    this.contentElement.style.width = '100%';
+    this.contentElement.style.height = '100%';
+    this.contentElement.style.boxSizing = 'border-box';
+
     this.updateElement();
   }
 

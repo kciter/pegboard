@@ -8,7 +8,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@pegboard/core": "workspace:*"
+    "@pegboard/core": "workspace:*",
+    "@pegboard/react": "workspace:*",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
   },
   "devDependencies": {
     "@chromatic-com/storybook": "^3.2.6",
@@ -23,7 +26,8 @@
     "eslint": "^9.18.0",
     "storybook": "^8.6.14",
     "typescript": "^5.7.3",
-    "vite": "^6.3.5"
+    "vite": "^6.3.5",
+    "@types/react": "^18.2.0"
   },
   "eslintConfig": {
     "extends": [
