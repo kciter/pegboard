@@ -23,6 +23,15 @@ export class Grid {
       position: container.style.position || 'relative',
     } as any;
 
+    // rows 가 설정되면 컨테이너 높이를 고정
+    if (this.config.rows && this.config.rows > 0) {
+      const totalHeight =
+        this.config.rows * this.config.rowHeight + this.config.gap * (this.config.rows - 1);
+      (gridStyles as any).height = `${totalHeight}px`;
+      // 내부 스크롤이 필요하면 overflow 설정(기본 hidden 유지)
+      (gridStyles as any).overflow = container.style.overflow || 'hidden';
+    }
+
     Object.entries(gridStyles).forEach(([property, value]) => {
       const cssProperty = property.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
       container.style.setProperty(cssProperty, value as string, 'important');

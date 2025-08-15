@@ -31,6 +31,7 @@ export interface BlockData {
 
 export interface GridConfig {
   columns: number;
+  rows?: number;
   rowHeight: number;
   gap: number;
 }

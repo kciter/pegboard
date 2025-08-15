@@ -14,13 +14,17 @@ export const Basic: Story = {
     const root = document.createElement('div');
     root.style.width = '100%';
 
-    const boardHost = document.createElement('div');
-    boardHost.style.height = '100%';
-    root.appendChild(boardHost);
+    const container = document.createElement('div');
+    root.appendChild(container);
 
     const pegboard = new Pegboard({
-      container: boardHost,
-      grid: { columns: 12, rowHeight: 60, gap: 8 },
+      container,
+      grid: {
+        columns: 12,
+        rows: 10,
+        rowHeight: 60,
+        gap: 8,
+      },
       allowOverlap: false,
       autoArrange: false,
     });
@@ -32,7 +36,6 @@ export const Basic: Story = {
       type: 'box',
       position: { x: 2, y: 2, zIndex: 0 },
       size: { width: 3, height: 2 },
-      id: 'box-1',
       attributes: {
         text: 'Box',
         color: randomColor(),

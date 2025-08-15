@@ -22,12 +22,11 @@ export const Viewer: StoryObj<ViewerArgs> = {
     const root = document.createElement('div');
     root.style.width = '100%';
 
-    const boardHost = document.createElement('div');
-    boardHost.style.height = '100%';
-    root.appendChild(boardHost);
+    const container = document.createElement('div');
+    root.appendChild(container);
 
     const pegboard = new Pegboard({
-      container: boardHost,
+      container,
       grid: { columns: 12, rowHeight: 60, gap: 8 },
       editable: args.editable,
       allowOverlap: false,
