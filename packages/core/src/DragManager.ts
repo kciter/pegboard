@@ -398,19 +398,18 @@ export class DragManager extends EventEmitter {
     const innerHeight = rect.height - paddingTop - paddingBottom;
 
     const anchorSize = this.selectedBlock.getData().size;
-    const blockPixelWidth = anchorSize.width * (this.dragState.columnWidth || 0) +
+    const blockPixelWidth =
+      anchorSize.width * (this.dragState.columnWidth || 0) +
       Math.max(0, anchorSize.width - 1) * config.gap;
-    const blockPixelHeight = anchorSize.height * config.rowHeight +
-      Math.max(0, anchorSize.height - 1) * config.gap;
+    const blockPixelHeight =
+      anchorSize.height * config.rowHeight + Math.max(0, anchorSize.height - 1) * config.gap;
 
     const minLeft = paddingLeft;
     const minTop = paddingTop;
     const maxLeft = paddingLeft + Math.max(0, innerWidth - blockPixelWidth);
     // rows 미설정 시 세로는 상단만 클램핑 (컨테이너 높이가 가변일 수 있음)
     const hasRowCap = !!config.rows && config.rows > 0;
-    const maxTop = hasRowCap
-      ? paddingTop + Math.max(0, innerHeight - blockPixelHeight)
-      : Infinity;
+    const maxTop = hasRowCap ? paddingTop + Math.max(0, innerHeight - blockPixelHeight) : Infinity;
 
     rawLeft = Math.max(minLeft, Math.min(maxLeft, rawLeft));
     rawTop = Math.max(minTop, Math.min(maxTop, rawTop));
@@ -443,12 +442,14 @@ export class DragManager extends EventEmitter {
     }
 
     // 스냅 후보 grid 좌표 계산
-    const gridX = Math.round((rawLeft - paddingLeft) / (this.dragState.cellTotalWidth!)) + 1; // 1-indexed
-    const gridY = Math.round((rawTop - paddingTop) / (this.dragState.rowUnit!)) + 1;
+    const gridX = Math.round((rawLeft - paddingLeft) / this.dragState.cellTotalWidth!) + 1; // 1-indexed
+    const gridY = Math.round((rawTop - paddingTop) / this.dragState.rowUnit!) + 1;
 
     // 후보 위치를 열/행 범위 내로 클램핑. 앵커 블록의 크기를 고려
     const maxXStart = Math.max(1, config.columns - anchorSize.width + 1);
-    const maxYStart = hasRowCap ? Math.max(1, (config.rows as number) - anchorSize.height + 1) : Infinity;
+    const maxYStart = hasRowCap
+      ? Math.max(1, (config.rows as number) - anchorSize.height + 1)
+      : Infinity;
 
     const candidate: GridPosition = {
       x: Math.max(1, Math.min(maxXStart, gridX)),
@@ -503,7 +504,12 @@ export class DragManager extends EventEmitter {
         .filter((b) => b.id !== blockData.id);
       const collides =
         !allowOverlap &&
-        this.grid.checkGridCollision(candidate, blockData.size, blockData.id, existingBlocks as any);
+        this.grid.checkGridCollision(
+          candidate,
+          blockData.size,
+          blockData.id,
+          existingBlocks as any,
+        );
       const valid = this.grid.isValidGridPosition(candidate, blockData.size) && !collides;
       this.pendingMoveGridPosition = valid ? candidate : null;
       this.updateHintOverlay(candidate, blockData.size, valid);

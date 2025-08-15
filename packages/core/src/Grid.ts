@@ -86,8 +86,7 @@ export class Grid {
   }
 
   isValidGridPosition(position: GridPosition, size: GridSize): boolean {
-    const withinColumns =
-      position.x >= 1 && position.x + size.width - 1 <= this.config.columns;
+    const withinColumns = position.x >= 1 && position.x + size.width - 1 <= this.config.columns;
     const hasRowCap = !!this.config.rows && this.config.rows > 0;
     const withinRows = hasRowCap
       ? position.y >= 1 && position.y + size.height - 1 <= (this.config.rows as number)

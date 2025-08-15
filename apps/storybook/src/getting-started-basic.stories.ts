@@ -34,7 +34,7 @@ export const Basic: Story = {
     const randomColor = () => `hsl(${Math.floor(Math.random() * 360)}, 70%, 60%)`;
     pegboard.addBlock({
       type: 'box',
-      position: { x: 2, y: 2, zIndex: 0 },
+      position: { x: 1, y: 1, zIndex: 0 },
       size: { width: 3, height: 2 },
       attributes: {
         text: 'Box',
