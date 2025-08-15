@@ -2,31 +2,12 @@ import type { Meta, StoryObj } from '@storybook/html';
 import { Pegboard, BlockExtension, BlockData } from '@pegboard/core';
 import { ConstrainedBoxBlock, ConstrainedBoxAttrs } from './blocks/constrained-box-block';
 
-interface MinMaxArgs {
-  columns: number;
-  rows: number;
-  rowHeight: number;
-  gap: number;
-}
-
-const meta: Meta<MinMaxArgs> = {
+const meta: Meta = {
   title: 'Getting Started/Constraints Size',
-  argTypes: {
-    columns: { control: { type: 'range', min: 6, max: 24, step: 1 } },
-    rows: { control: { type: 'range', min: 6, max: 20, step: 1 } },
-    rowHeight: { control: { type: 'range', min: 36, max: 120, step: 2 } },
-    gap: { control: { type: 'range', min: 0, max: 24, step: 1 } },
-  },
-  args: {
-    columns: 12,
-    rows: 10,
-    rowHeight: 60,
-    gap: 8,
-  },
 };
 export default meta;
 
-export const ConstraintsSize: StoryObj<MinMaxArgs> = {
+export const ConstraintsSize: StoryObj = {
   render: (args) => {
     const root = document.createElement('div');
     root.style.width = '100%';
@@ -36,7 +17,7 @@ export const ConstraintsSize: StoryObj<MinMaxArgs> = {
 
     const pegboard = new Pegboard({
       container,
-      grid: { columns: args.columns, rows: args.rows, rowHeight: args.rowHeight, gap: args.gap },
+      grid: { columns: 12, rows: 10, rowHeight: 60, gap: 8 },
       editable: true,
       allowOverlap: false,
     });
@@ -77,7 +58,6 @@ export const ConstraintsSize: StoryObj<MinMaxArgs> = {
         el.style.color = '#fff';
         el.style.fontWeight = 'bold';
         el.style.textAlign = 'center';
-        // el.style.padding = '8px';
         el.innerHTML = `${data.attributes.text}<br/>(min 3x2, max 5x3)`;
         container.innerHTML = '';
         container.appendChild(el);

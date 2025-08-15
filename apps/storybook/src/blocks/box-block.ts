@@ -22,7 +22,7 @@ export class BoxBlock extends BlockExtension<BoxBlockAttributes> {
     el.style.justifyContent = 'center';
     el.style.color = '#fff';
     el.style.fontWeight = 'bold';
-    el.textContent = 'Box';
+    el.textContent = data.attributes.text;
     container.innerHTML = '';
     container.appendChild(el);
   }
