@@ -12,8 +12,13 @@
       <div class="actions">
         <button id="add-text">Add Text</button>
         <label class="inline"><input type="checkbox" id="toggle-overlap" /> Allow Overlap</label>
-        <label class="inline"><input type="checkbox" id="toggle-auto-arrange" /> Auto Arrange</label>
-        <label class="inline">Arrange ms <input type="number" id="arrange-ms" min="0" step="10" value="220" style="width:80px" /></label>
+        <label class="inline"
+          ><input type="checkbox" id="toggle-auto-arrange" /> Auto Arrange</label
+        >
+        <label class="inline"
+          >Arrange ms
+          <input type="number" id="arrange-ms" min="0" step="10" value="220" style="width: 80px"
+        /></label>
       </div>
     </header>
     <main class="layout">
@@ -23,7 +28,7 @@
       <aside class="sidebar">
         <h3>Blocks <span id="count">0</span></h3>
         <ul id="block-list"></ul>
-        <div id="inspector" class="inspector-panel" style="margin-top:16px;"></div>
+        <div id="inspector" class="inspector-panel" style="margin-top: 16px"></div>
       </aside>
     </main>
     <script type="module" src="/src/main.ts"></script>

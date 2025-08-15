@@ -16,10 +16,7 @@ export function getElementRect(element: HTMLElement): DOMRect {
 
 export function isPointInRect(point: { x: number; y: number }, rect: DOMRect): boolean {
   return (
-    point.x >= rect.left &&
-    point.x <= rect.right &&
-    point.y >= rect.top &&
-    point.y <= rect.bottom
+    point.x >= rect.left && point.x <= rect.right && point.y >= rect.top && point.y <= rect.bottom
   );
 }
 
@@ -42,7 +39,7 @@ export function deepClone<T>(obj: T): T {
     return new Date(obj.getTime()) as T;
   }
   if (obj instanceof Array) {
-    return obj.map(item => deepClone(item)) as T;
+    return obj.map((item) => deepClone(item)) as T;
   }
   if (typeof obj === 'object') {
     const cloned = {} as T;

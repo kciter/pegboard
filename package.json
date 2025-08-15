@@ -2,10 +2,21 @@
   "private": true,
   "name": "pegboard",
   "description": "Grid-based WYSIWYG editor",
-  "keywords": ["pegboard", "editor", "wysiwyg", "grid"],
+  "keywords": [
+    "pegboard",
+    "editor",
+    "wysiwyg",
+    "grid"
+  ],
   "author": "Sunhyoup Lee <kciter@naver.com>",
   "license": "MIT",
   "scripts": {
+    "lint": "pnpm -r run lint",
+    "build": "pnpm -r --parallel --filter \"./packages/**/*\" run build",
+    "build:storybook": "pnpm -F storybook build",
+    "clean": "pnpm -r run clean",
+    "dev:storybook": "pnpm -F storybook dev",
+    "format": "prettier --write ."
   },
   "devDependencies": {
     "esbuild": "^0.25.4",

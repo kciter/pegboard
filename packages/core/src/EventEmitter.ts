@@ -23,7 +23,7 @@ export class EventEmitter {
   emit<K extends keyof EventMap>(event: K, data: EventMap[K]): void {
     const callbacks = this.listeners.get(event as string);
     if (callbacks) {
-      callbacks.forEach(callback => callback(data));
+      callbacks.forEach((callback) => callback(data));
     }
   }
 
