@@ -15,11 +15,6 @@
   min-height: 400px;
 }
 
-.pegboard-container.pegboard-has-fixed-rows {
-  height: var(--pegboard-fixed-height);
-  overflow: hidden;
-}
-
 /* Grid overlay */
 .pegboard-container .pegboard-grid-overlay {
   position: absolute;

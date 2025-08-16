@@ -33,7 +33,10 @@ export class Grid {
         this.config.rows * this.config.rowHeight + this.config.gap * (this.config.rows - 1);
       (gridStyles as any).height = `${totalHeight}px`;
       (gridStyles as any)['minHeight'] = '' as any; // 고정 높이일 때는 min-height 해제
-      (gridStyles as any).overflow = container.style.overflow || 'hidden';
+      // 에디터 모드에서는 리사이즈 핸들이 잘리지 않도록 overflow를 visible로 설정,
+      // 뷰어 모드에서는 레이아웃 누수 방지를 위해 hidden 유지
+      const inEditor = container.classList.contains('pegboard-editor-mode');
+      (gridStyles as any).overflow = inEditor ? 'visible' : 'hidden';
     } else {
       // 동적 높이(unboundedRows 포함): rows 값이 있으면 최소 높이로 유지
       (gridStyles as any).height = '' as any;
@@ -44,7 +47,7 @@ export class Grid {
       } else {
         (gridStyles as any)['minHeight'] = '' as any;
       }
-      (gridStyles as any).overflow = container.style.overflow || '';
+      (gridStyles as any).overflow = '';
     }
 
     Object.entries(gridStyles).forEach(([property, value]) => {
