@@ -55,17 +55,12 @@ export class Pegboard extends EventEmitter {
   }
 
   private setupContainer(): void {
-    // 기존 스타일은 유지하면서 필요한 속성만 추가
+    // 기존 스타일은 유지하면서 필요한 클래스만 추가
     if (!this.container.classList.contains('pegboard-container')) {
       this.container.classList.add('pegboard-container');
     }
-    if (!this.container.style.minHeight) {
-      this.container.style.minHeight = '400px';
-    }
-    if (!this.container.style.position) {
-      this.container.style.position = 'relative';
-    }
 
+    // 기본 스타일은 JS에서 강제하지 않음 (headless)
     this.grid.applyGridStyles(this.container);
   }
 

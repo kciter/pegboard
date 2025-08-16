@@ -1,0 +1,118 @@
+:root {
+  --pegboard-accent: #1e90ff;
+  --pegboard-handle-size: 8px;
+  --pegboard-outline-width: 1px;
+  --pegboard-grid-line-color: rgba(0, 0, 0, 0.1);
+  --pegboard-grid-overlay-opacity: 0.5;
+}
+
+.pegboard-container {
+  position: relative;
+  min-height: 400px;
+}
+
+.pegboard-container.pegboard-has-fixed-rows {
+  height: var(--pegboard-fixed-height);
+  overflow: hidden;
+}
+
+/* Grid overlay */
+.pegboard-container .pegboard-grid-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+.pegboard-container .pegboard-grid-cell {
+  border: 1px dashed var(--pegboard-grid-line-color);
+  box-sizing: border-box;
+}
+
+/* Block */
+.pegboard-block {
+  position: relative;
+  box-sizing: border-box;
+  user-select: none;
+}
+.pegboard-block-content {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+}
+
+/* Selection */
+.pegboard-block-selected {
+  outline: var(--pegboard-outline-width) solid var(--pegboard-accent);
+  outline-offset: 0;
+}
+
+/* Resize handles */
+.pegboard-resize-handle-nw,
+.pegboard-resize-handle-ne,
+.pegboard-resize-handle-sw,
+.pegboard-resize-handle-se,
+.pegboard-resize-handle-n,
+.pegboard-resize-handle-s,
+.pegboard-resize-handle-w,
+.pegboard-resize-handle-e {
+  position: absolute;
+  width: var(--pegboard-handle-size);
+  height: var(--pegboard-handle-size);
+  background-color: var(--pegboard-accent);
+  border: 1px solid #fff;
+  border-radius: 2px;
+  z-index: 1000;
+}
+
+.pegboard-resize-handle-nw { top: calc(var(--pegboard-handle-size)/-2); left: calc(var(--pegboard-handle-size)/-2); cursor: nw-resize; }
+.pegboard-resize-handle-ne { top: calc(var(--pegboard-handle-size)/-2); right: calc(var(--pegboard-handle-size)/-2); cursor: ne-resize; }
+.pegboard-resize-handle-sw { bottom: calc(var(--pegboard-handle-size)/-2); left: calc(var(--pegboard-handle-size)/-2); cursor: sw-resize; }
+.pegboard-resize-handle-se { bottom: calc(var(--pegboard-handle-size)/-2); right: calc(var(--pegboard-handle-size)/-2); cursor: se-resize; }
+.pegboard-resize-handle-n { top: calc(var(--pegboard-handle-size)/-2); left: 50%; transform: translateX(-50%); cursor: n-resize; }
+.pegboard-resize-handle-s { bottom: calc(var(--pegboard-handle-size)/-2); left: 50%; transform: translateX(-50%); cursor: s-resize; }
+.pegboard-resize-handle-w { left: calc(var(--pegboard-handle-size)/-2); top: 50%; transform: translateY(-50%); cursor: w-resize; }
+.pegboard-resize-handle-e { right: calc(var(--pegboard-handle-size)/-2); top: 50%; transform: translateY(-50%); cursor: e-resize; }
+
+/* Selection box */
+.pegboard-selection-box {
+  border: 1px dashed var(--pegboard-accent);
+  background: color-mix(in oklab, var(--pegboard-accent) 10%, transparent);
+  pointer-events: none;
+  z-index: 10000;
+}
+
+/* Hint overlay */
+.pegboard-hint-overlay {
+  pointer-events: none;
+  box-sizing: border-box;
+  border: 2px dashed var(--pegboard-accent);
+  background: color-mix(in oklab, var(--pegboard-accent) 15%, transparent);
+  z-index: 50;
+}
+.pegboard-hint-overlay.invalid {
+  border-color: #ff4d4f;
+  background: rgba(255,77,79,0.15);
+}
+
+/* Editor move cursor */
+.pegboard-editor-mode .pegboard-block { cursor: move; }
+.pegboard-editor-mode .pegboard-block[data-movable="false"] { cursor: default; }
+
+/* Editor/viewer mode hooks */
+.pegboard-editor-mode .pegboard-resize-handle-nw,
+.pegboard-editor-mode .pegboard-resize-handle-ne,
+.pegboard-editor-mode .pegboard-resize-handle-sw,
+.pegboard-editor-mode .pegboard-resize-handle-se,
+.pegboard-editor-mode .pegboard-resize-handle-n,
+.pegboard-editor-mode .pegboard-resize-handle-s,
+.pegboard-editor-mode .pegboard-resize-handle-w,
+.pegboard-editor-mode .pegboard-resize-handle-e { display: block; }
+.pegboard-viewer-mode .pegboard-resize-handle-nw,
+.pegboard-viewer-mode .pegboard-resize-handle-ne,
+.pegboard-viewer-mode .pegboard-resize-handle-sw,
+.pegboard-viewer-mode .pegboard-resize-handle-se,
+.pegboard-viewer-mode .pegboard-resize-handle-n,
+.pegboard-viewer-mode .pegboard-resize-handle-s,
+.pegboard-viewer-mode .pegboard-resize-handle-w,
+.pegboard-viewer-mode .pegboard-resize-handle-e { display: none; }

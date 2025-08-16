@@ -18,29 +18,31 @@ export class Grid {
   }
 
   applyGridStyles(container: HTMLElement): void {
-    // 컨테이너에 이미 다른 스타일(overflow, minHeight 등)이 적용되어 있을 수 있으므로 지우지 않고 필요한 속성만 설정
+    // 레이아웃 관련 속성은 inline style로 직접 적용
     const gridStyles: Partial<CSSStyleDeclaration> = {
       display: 'grid',
-      // repeat 사용 + 1fr 기반으로 column 나눔
       gridTemplateColumns: `repeat(${this.config.columns}, 1fr)`,
       gridAutoRows: `${this.config.rowHeight}px`,
       gap: `${this.config.gap}px`,
       gridAutoFlow: 'row dense',
-      position: container.style.position || 'relative',
     } as any;
 
-    // rows 가 설정되면 컨테이너 높이를 고정
-    if (this.config.rows && this.config.rows > 0) {
+    // rows가 설정되면 컨테이너 높이를 고정
+    if (this.config.rows && this.config.rows > 0 && !this.unboundedRows) {
       const totalHeight =
         this.config.rows * this.config.rowHeight + this.config.gap * (this.config.rows - 1);
       (gridStyles as any).height = `${totalHeight}px`;
-      // 내부 스크롤이 필요하면 overflow 설정(기본 hidden 유지)
       (gridStyles as any).overflow = container.style.overflow || 'hidden';
+    } else {
+      // 동적 높이
+      (gridStyles as any).height = '' as any;
+      (gridStyles as any).overflow = container.style.overflow || '';
     }
 
     Object.entries(gridStyles).forEach(([property, value]) => {
       const cssProperty = property.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
-      container.style.setProperty(cssProperty, value as string, 'important');
+      if (value !== undefined)
+        container.style.setProperty(cssProperty, value as string, 'important');
     });
   }
 
@@ -176,9 +178,7 @@ export class Grid {
 
   renderGridLines(container: HTMLElement): void {
     const existingOverlay = container.querySelector('.pegboard-grid-overlay');
-    if (existingOverlay) {
-      existingOverlay.remove();
-    }
+    if (existingOverlay) existingOverlay.remove();
 
     if (getComputedStyle(container).display !== 'grid') {
       this.applyGridStyles(container);
@@ -186,27 +186,23 @@ export class Grid {
 
     const overlay = document.createElement('div');
     overlay.className = 'pegboard-grid-overlay';
-    overlay.style.cssText = `
-      position: absolute;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      pointer-events: none;
-      z-index: 0;
-      display: grid;
-      grid-template-columns: repeat(${this.config.columns}, 1fr);
-      grid-auto-rows: ${this.config.rowHeight}px;
-      gap: ${this.config.gap}px;
-    `;
+    // 레이아웃은 inline style로 적용 (색/보더는 CSS에서)
+    overlay.style.position = 'absolute';
+    overlay.style.top = '0';
+    overlay.style.left = '0';
+    overlay.style.right = '0';
+    overlay.style.bottom = '0';
+    overlay.style.pointerEvents = 'none';
+    overlay.style.zIndex = '0';
+    overlay.style.display = 'grid';
+    overlay.style.gridTemplateColumns = `repeat(${this.config.columns}, 1fr)`;
+    overlay.style.gridAutoRows = `${this.config.rowHeight}px`;
+    overlay.style.gap = `${this.config.gap}px`;
 
     const totalCells = this.config.columns * 20;
     for (let i = 0; i < totalCells; i++) {
       const cell = document.createElement('div');
-      cell.style.cssText = `
-        border: 1px dashed rgba(0, 0, 0, 0.1);
-        box-sizing: border-box;
-      `;
+      cell.className = 'pegboard-grid-cell';
       overlay.appendChild(cell);
     }
 

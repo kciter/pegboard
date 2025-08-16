@@ -278,17 +278,12 @@ export class DragManager extends EventEmitter {
     if (this.selectionBoxEl) this.selectionBoxEl.remove();
     this.selectionBoxEl = document.createElement('div');
     this.selectionBoxEl.className = 'pegboard-selection-box';
-    Object.assign(this.selectionBoxEl.style, {
-      position: 'absolute',
-      left: `${x}px`,
-      top: `${y}px`,
-      width: '0px',
-      height: '0px',
-      border: '1px dashed #4096ff',
-      background: 'rgba(64,150,255,0.1)',
-      pointerEvents: 'none',
-      zIndex: '10000',
-    } as CSSStyleDeclaration);
+    // 위치/크기만 JS에서 관리, 시각은 CSS로
+    this.selectionBoxEl.style.position = 'absolute';
+    this.selectionBoxEl.style.left = `${x}px`;
+    this.selectionBoxEl.style.top = `${y}px`;
+    this.selectionBoxEl.style.width = '0px';
+    this.selectionBoxEl.style.height = '0px';
     this.container.appendChild(this.selectionBoxEl);
   }
 
@@ -1139,24 +1134,12 @@ export class DragManager extends EventEmitter {
     if (!this.hintElement) {
       this.hintElement = document.createElement('div');
       this.hintElement.className = 'pegboard-hint-overlay';
-      Object.assign(this.hintElement.style, {
-        pointerEvents: 'none',
-        boxSizing: 'border-box',
-        border: '2px dashed #1e90ff',
-        background: 'rgba(30,144,255,0.15)',
-        zIndex: '50',
-      } as CSSStyleDeclaration);
+      this.hintElement.setAttribute('aria-hidden', 'true');
       this.container.appendChild(this.hintElement);
     }
     this.hintElement.style.gridColumn = `${pos.x} / span ${size.width}`;
     this.hintElement.style.gridRow = `${pos.y} / span ${size.height}`;
-    if (valid) {
-      this.hintElement.style.borderColor = '#1e90ff';
-      this.hintElement.style.background = 'rgba(30,144,255,0.15)';
-    } else {
-      this.hintElement.style.borderColor = '#ff4d4f';
-      this.hintElement.style.background = 'rgba(255,77,79,0.15)';
-    }
+    this.hintElement.classList.toggle('invalid', !valid);
   }
 
   private clearHintOverlay(): void {

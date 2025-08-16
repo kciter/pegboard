@@ -10,12 +10,7 @@ export class Block {
     this.element = this.createElement();
     this.contentElement = createElement('div', 'pegboard-block-content', this.element);
 
-    // 기본 콘텐츠 컨테이너 스타일: 플러그인에서 100% 높이/절대배치 등을 안정적으로 사용하도록
-    this.contentElement.style.position = 'relative';
-    this.contentElement.style.width = '100%';
-    this.contentElement.style.height = '100%';
-    this.contentElement.style.boxSizing = 'border-box';
-
+    // 콘텐츠 영역 스타일은 CSS로 위임
     this.updateElement();
   }
 
@@ -23,89 +18,34 @@ export class Block {
     const element = createElement('div', 'pegboard-block');
     element.dataset.blockId = this.data.id;
     element.dataset.blockType = this.data.type;
-
-    // Grid 아이템 내부에서 resize handle 절대배치 위한 relative
-    element.style.position = 'relative';
-    element.style.boxSizing = 'border-box';
-    element.style.userSelect = 'none';
-
     return element;
   }
 
   private createResizeHandles(): void {
     this.clearResizeHandles();
-
-    // resizable=false면 핸들 생성 안 함
     if (this.data.resizable === false) return;
 
     const handles = [
-      { class: 'pegboard-resize-handle-nw', cursor: 'nw-resize' },
-      { class: 'pegboard-resize-handle-ne', cursor: 'ne-resize' },
-      { class: 'pegboard-resize-handle-sw', cursor: 'sw-resize' },
-      { class: 'pegboard-resize-handle-se', cursor: 'se-resize' },
-      { class: 'pegboard-resize-handle-n', cursor: 'n-resize' },
-      { class: 'pegboard-resize-handle-s', cursor: 's-resize' },
-      { class: 'pegboard-resize-handle-w', cursor: 'w-resize' },
-      { class: 'pegboard-resize-handle-e', cursor: 'e-resize' },
+      'pegboard-resize-handle-nw',
+      'pegboard-resize-handle-ne',
+      'pegboard-resize-handle-sw',
+      'pegboard-resize-handle-se',
+      'pegboard-resize-handle-n',
+      'pegboard-resize-handle-s',
+      'pegboard-resize-handle-w',
+      'pegboard-resize-handle-e',
     ];
 
-    handles.forEach(({ class: className, cursor }) => {
+    handles.forEach((className) => {
       const handle = createElement('div', className, this.element);
-      handle.style.position = 'absolute';
-      handle.style.cursor = cursor;
-      handle.style.width = '8px';
-      handle.style.height = '8px';
-      handle.style.backgroundColor = '#007acc';
-      handle.style.border = '1px solid #fff';
-      handle.style.borderRadius = '2px';
-      handle.style.zIndex = '1000';
-
+      // 스타일은 CSS에서
       this.positionResizeHandle(handle, className);
       this.resizeHandles.push(handle);
     });
   }
 
   private positionResizeHandle(handle: HTMLElement, className: string): void {
-    const offset = '-4px';
-
-    switch (className) {
-      case 'pegboard-resize-handle-nw':
-        handle.style.top = offset;
-        handle.style.left = offset;
-        break;
-      case 'pegboard-resize-handle-ne':
-        handle.style.top = offset;
-        handle.style.right = offset;
-        break;
-      case 'pegboard-resize-handle-sw':
-        handle.style.bottom = offset;
-        handle.style.left = offset;
-        break;
-      case 'pegboard-resize-handle-se':
-        handle.style.bottom = offset;
-        handle.style.right = offset;
-        break;
-      case 'pegboard-resize-handle-n':
-        handle.style.top = offset;
-        handle.style.left = '50%';
-        handle.style.transform = 'translateX(-50%)';
-        break;
-      case 'pegboard-resize-handle-s':
-        handle.style.bottom = offset;
-        handle.style.left = '50%';
-        handle.style.transform = 'translateX(-50%)';
-        break;
-      case 'pegboard-resize-handle-w':
-        handle.style.left = offset;
-        handle.style.top = '50%';
-        handle.style.transform = 'translateY(-50%)';
-        break;
-      case 'pegboard-resize-handle-e':
-        handle.style.right = offset;
-        handle.style.top = '50%';
-        handle.style.transform = 'translateY(-50%)';
-        break;
-    }
+    // 위치는 CSS에서 처리. 여기서는 의미상 클래스를 보정만 할 수 있음.
   }
 
   private clearResizeHandles(): void {
@@ -115,10 +55,7 @@ export class Block {
 
   private updateElement(): void {
     const { position, size } = this.data;
-
-    // grid 레이아웃 강제 적용
     this.element.style.removeProperty('grid-area');
-
     const gridColumnValue = `${position.x} / span ${size.width}`;
     const gridRowValue = `${position.y} / span ${size.height}`;
     this.element.style.setProperty('grid-column', gridColumnValue, 'important');
@@ -141,36 +78,25 @@ export class Block {
   }
 
   setSelected(selected: boolean): void {
+    this.element.classList.toggle('pegboard-block-selected', !!selected);
     if (selected) {
-      this.element.classList.add('pegboard-block-selected');
-      // 선택 시 시각적 강조(리사이즈 가능 여부와 무관)
-      this.element.style.outline = '1px solid #1e90ff';
-      this.element.style.outlineOffset = '0px';
       this.createResizeHandles();
     } else {
-      this.element.classList.remove('pegboard-block-selected');
-      // 선택 해제 시 강조 제거
-      this.element.style.outline = '';
-      this.element.style.outlineOffset = '';
       this.clearResizeHandles();
     }
   }
 
   setEditable(isEditable: boolean): void {
-    if (isEditable) {
-      this.element.classList.add('pegboard-block-editor');
-      // movable=false면 move 커서를 강제하지 않음
-      this.element.style.cursor = this.data.movable === false ? 'default' : 'move';
-    } else {
-      this.element.classList.remove('pegboard-block-editor');
-      this.element.style.cursor = 'default';
-      this.clearResizeHandles();
-    }
+    this.element.classList.toggle('pegboard-block-editor', !!isEditable);
+    // 커서는 CSS에서 [data-movable=false] 등으로 제어 가능하게 위임
   }
 
   setInteractionFlags(flags: { movable?: boolean; resizable?: boolean }) {
     this.data.movable = flags.movable ?? this.data.movable;
     this.data.resizable = flags.resizable ?? this.data.resizable;
+    // immovable 표시를 위해 data-attr 토글(스타일은 CSS에서)
+    if (this.data.movable === false) this.element.dataset.movable = 'false';
+    else delete this.element.dataset.movable;
   }
 
   getData(): BlockData {
