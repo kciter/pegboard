@@ -87,7 +87,7 @@ export const ExportAndImport: StoryObj<ExportImportArgs> = {
       autoArrange: false,
     });
 
-    pegboard.registerPlugin(new BoxBlock());
+    pegboard.registerExtension(new BoxBlock());
 
     const colors = ['#ff7875', '#95de64', '#69c0ff'];
     for (let i = 0; i < 3; i++) {

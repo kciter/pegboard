@@ -22,7 +22,7 @@ export const Movable: StoryObj = {
       allowOverlap: false,
     });
 
-    pegboard.registerPlugin(new BoxBlock());
+    pegboard.registerExtension(new BoxBlock());
 
     // Movable A
     pegboard.addBlock({

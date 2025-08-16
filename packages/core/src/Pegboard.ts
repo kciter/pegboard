@@ -110,11 +110,11 @@ export class Pegboard extends EventEmitter {
     this.grid.hideGridLines(this.container);
   }
 
-  registerPlugin(plugin: AnyBlockExtension): void {
+  registerExtension(plugin: AnyBlockExtension): void {
     this.plugins.set(plugin.type, plugin);
   }
 
-  unregisterPlugin(type: string): void {
+  unregisterExtension(type: string): void {
     this.plugins.delete(type);
   }
 

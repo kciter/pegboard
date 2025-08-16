@@ -53,7 +53,7 @@ export const DeleteBlock: StoryObj<DeleteBlockArgs> = {
       keyboardDelete: !!args.keyboardDelete,
     });
 
-    pegboard.registerPlugin(new BoxBlock());
+    pegboard.registerExtension(new BoxBlock());
 
     let selectedIds: string[] = [];
     pegboard.on('selection:changed', ({ ids }) => {

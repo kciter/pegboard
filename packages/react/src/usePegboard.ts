@@ -63,7 +63,7 @@ export function usePegboard(options: UsePegboardOptions): UsePegboardReturn {
     if (!pegboardRef.current || !options.plugins) return;
     for (const plugin of options.plugins) {
       if (!registeredPluginTypesRef.current.has(plugin.type)) {
-        pegboardRef.current.registerPlugin(plugin);
+        pegboardRef.current.registerExtension(plugin);
         registeredPluginTypesRef.current.add(plugin.type);
       }
     }

@@ -22,7 +22,7 @@ export const Resizable: StoryObj = {
       allowOverlap: false,
     });
 
-    pegboard.registerPlugin(new BoxBlock());
+    pegboard.registerExtension(new BoxBlock());
 
     // Resizable A
     pegboard.addBlock({

@@ -24,7 +24,7 @@ export const AutoGrowRows: StoryObj = {
       autoGrowRows: true,
     });
 
-    pegboard.registerPlugin(new BoxBlock());
+    pegboard.registerExtension(new BoxBlock());
 
     const randomColor = () => `hsl(${Math.floor(Math.random() * 360)}, 70%, 60%)`;
 

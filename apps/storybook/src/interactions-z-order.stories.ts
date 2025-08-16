@@ -59,7 +59,7 @@ export const ZOrder: StoryObj = {
       autoArrange: false,
     });
 
-    pegboard.registerPlugin(new BoxBlock());
+    pegboard.registerExtension(new BoxBlock());
 
     // 선택 상태에 따라 버튼 활성화
     let selected: string | null = null;

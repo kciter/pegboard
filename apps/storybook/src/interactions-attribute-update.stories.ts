@@ -75,7 +75,7 @@ export const UpdateAttributes: StoryObj = {
       autoArrange: false,
     });
 
-    pegboard.registerPlugin(new BoxBlock());
+    pegboard.registerExtension(new BoxBlock());
 
     // Helpers
     const rand = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min;

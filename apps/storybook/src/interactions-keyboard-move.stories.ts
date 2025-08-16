@@ -35,7 +35,7 @@ export const KeyboardMove: StoryObj<KeyboardMoveArgs> = {
       keyboardDelete: false,
     });
 
-    pegboard.registerPlugin(new BoxBlock());
+    pegboard.registerExtension(new BoxBlock());
 
     pegboard.addBlock({
       type: 'box',

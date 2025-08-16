@@ -33,7 +33,7 @@ export const LassoSelection: StoryObj<LassoArgs> = {
       lassoSelection: !!args.lassoSelection,
     });
 
-    pegboard.registerPlugin(new BoxBlock());
+    pegboard.registerExtension(new BoxBlock());
 
     const colors = [
       'hsl(210,70%,60%)',
@@ -44,7 +44,6 @@ export const LassoSelection: StoryObj<LassoArgs> = {
       'hsl(30,80%,55%)',
     ];
 
-    // 격자에 여러 박스를 흩뿌려 라쏘 선택을 테스트
     const blocks = [
       { x: 1, y: 1, w: 2, h: 2 },
       { x: 4, y: 1, w: 3, h: 2 },
@@ -62,15 +61,6 @@ export const LassoSelection: StoryObj<LassoArgs> = {
         attributes: { text: String.fromCharCode(65 + i), color: colors[i % colors.length] },
       });
     });
-
-    const tip = document.createElement('p');
-    tip.style.marginTop = '8px';
-    tip.style.font =
-      '12px/1.4 -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif';
-    tip.style.color = '#666';
-    tip.textContent =
-      '빈 공간에서 마우스를 드래그해 라쏘 박스를 그려보세요. Shift 키를 누른 채 드래그하면 기존 선택에 추가됩니다.';
-    root.appendChild(tip);
 
     return root;
   },

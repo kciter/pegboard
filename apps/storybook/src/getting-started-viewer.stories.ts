@@ -32,7 +32,7 @@ export const Viewer: StoryObj<ViewerArgs> = {
       allowOverlap: false,
     });
 
-    pegboard.registerPlugin(new BoxBlock());
+    pegboard.registerExtension(new BoxBlock());
 
     pegboard.addBlock({
       type: 'box',

@@ -22,7 +22,7 @@ export const ConstraintsSize: StoryObj = {
       allowOverlap: false,
     });
 
-    pegboard.registerPlugin(new ConstrainedBoxBlock());
+    pegboard.registerExtension(new ConstrainedBoxBlock());
 
     // 기본 제약을 가진 블럭 하나
     const id1 = pegboard.addBlock({
@@ -63,7 +63,7 @@ export const ConstraintsSize: StoryObj = {
         container.appendChild(el);
       }
     }
-    pegboard.registerPlugin(new StrictBox());
+    pegboard.registerExtension(new StrictBox());
 
     pegboard.addBlock({
       type: 'box-constrained-strict',

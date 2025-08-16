@@ -32,7 +32,7 @@ export const AllowOverlap: StoryObj<OverlapArgs> = {
       allowOverlap: !!args.allowOverlap,
     });
 
-    pegboard.registerPlugin(new BoxBlock());
+    pegboard.registerExtension(new BoxBlock());
 
     const colors = ['hsl(210,70%,60%)', 'hsl(140,70%,55%)', 'hsl(20,80%,60%)'];
 

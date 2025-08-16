@@ -50,7 +50,7 @@ export const AddBlock: StoryObj<AddBlockArgs> = {
       arrangeAnimationMs: 220,
     });
 
-    pegboard.registerPlugin(new BoxBlock());
+    pegboard.registerExtension(new BoxBlock());
 
     const rand = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min;
     const randomColor = () => `hsl(${Math.floor(Math.random() * 360)}, 70%, 60%)`;

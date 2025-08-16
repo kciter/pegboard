@@ -25,7 +25,7 @@ function init() {
     arrangeAnimationMs: 220,
   });
 
-  pegboard.registerPlugin(new TextBlockExtension());
+  pegboard.registerExtension(new TextBlockExtension());
 
   // Seed blocks
   pegboard.addBlock({ type: 'text', attributes: { content: 'Hello from Text Block' } as any });

@@ -41,7 +41,7 @@ export const DuplicateBlock: StoryObj = {
       autoArrange: false,
     });
 
-    pegboard.registerPlugin(new BoxBlock());
+    pegboard.registerExtension(new BoxBlock());
 
     let selectedIds: string[] = [];
     pegboard.on('selection:changed', ({ ids }) => {

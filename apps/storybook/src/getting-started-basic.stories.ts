@@ -29,7 +29,7 @@ export const Basic: Story = {
       autoArrange: false,
     });
 
-    pegboard.registerPlugin(new BoxBlock());
+    pegboard.registerExtension(new BoxBlock());
 
     const randomColor = () => `hsl(${Math.floor(Math.random() * 360)}, 70%, 60%)`;
     pegboard.addBlock({
