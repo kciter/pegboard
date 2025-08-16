@@ -35,6 +35,7 @@ export class DragManager extends EventEmitter {
   private interactionNotified: boolean = false;
   private pendingReflowPositions: Map<string, GridPosition> | null = null;
   private triedReflow: boolean = false;
+  private reflowPreviewOverlays: Map<string, HTMLElement> = new Map();
 
   constructor(
     private container: HTMLElement,
@@ -574,6 +575,7 @@ export class DragManager extends EventEmitter {
         this.pendingMoveGridPosition = valid ? candidate : null;
         this.pendingReflowPositions = null;
         this.triedReflow = false;
+  this.clearReflowPreview();
         this.updateHintOverlay(candidate, blockData.size, valid);
       } else {
         // 겹침 금지: 모든 다른 블록과 충돌 금지
@@ -607,11 +609,13 @@ export class DragManager extends EventEmitter {
             ) {
               this.requestGrowRows && this.requestGrowRows(plan.requiredBottom);
             }
+            this.updateReflowPreview(plan.map);
             this.updateHintOverlay(candidate, blockData.size, true);
           } else {
             this.pendingMoveGridPosition = null;
             this.pendingReflowPositions = null;
             this.triedReflow = true;
+            this.clearReflowPreview();
             this.updateHintOverlay(candidate, blockData.size, false);
           }
         }
@@ -650,7 +654,23 @@ export class DragManager extends EventEmitter {
               const b = this.getBlock(id);
               if (!b) continue;
               const from = { ...b.getData().position };
+              const el = b.getElement();
+              // FLIP animation
+              const before = el.getBoundingClientRect();
               b.setPosition(pos);
+              const after = el.getBoundingClientRect();
+              const dx = before.left - after.left;
+              const dy = before.top - after.top;
+              el.style.transition = 'transform 150ms ease';
+              el.style.transform = `translate(${dx}px, ${dy}px)`;
+              requestAnimationFrame(() => {
+                el.style.transform = '';
+              });
+              setTimeout(() => {
+                if (!el.classList.contains('pegboard-block-dragging')) {
+                  el.style.transition = '';
+                }
+              }, 200);
               movedSummary.push({ id, from, to: { ...pos } });
             }
             // anchor moved 이벤트 유지
@@ -681,6 +701,7 @@ export class DragManager extends EventEmitter {
           this.pendingReflowPositions = null;
           this.triedReflow = false;
           this.clearHintOverlay();
+          this.clearReflowPreview();
         }
       } else if (this.dragState.dragType === 'resize') {
         const oldSize = { ...this.startSize };
@@ -1087,6 +1108,46 @@ export class DragManager extends EventEmitter {
       el.style.transform = '';
       el.classList.remove('pegboard-block-dragging');
     }
+  }
+
+  private updateReflowPreview(map: Map<string, GridPosition>): void {
+    const anchorId = this.dragState.targetBlockId;
+    // prune
+    for (const id of Array.from(this.reflowPreviewOverlays.keys())) {
+      if (!map.has(id) || id === anchorId) {
+        const el = this.reflowPreviewOverlays.get(id)!;
+        el.remove();
+        this.reflowPreviewOverlays.delete(id);
+      }
+    }
+    for (const [id, pos] of map.entries()) {
+      if (id === anchorId) continue;
+      const b = this.getBlock(id);
+      if (!b) continue;
+      const size = b.getData().size;
+      let el = this.reflowPreviewOverlays.get(id);
+      if (!el) {
+        el = document.createElement('div');
+        el.className = 'pegboard-hint-overlay pegboard-reflow-preview';
+        el.setAttribute('aria-hidden', 'true');
+        el.style.pointerEvents = 'none';
+        el.style.zIndex = '2';
+        el.style.opacity = '0.6';
+        // fallback visual if consumer CSS doesn't style it
+        el.style.backgroundColor = 'rgba(80, 140, 255, 0.2)';
+        el.style.outline = '1px dashed rgba(80, 140, 255, 0.7)';
+        el.style.borderRadius = '4px';
+        this.container.appendChild(el);
+        this.reflowPreviewOverlays.set(id, el);
+      }
+      el.style.gridColumn = `${pos.x} / span ${size.width}`;
+      el.style.gridRow = `${pos.y} / span ${size.height}`;
+    }
+  }
+
+  private clearReflowPreview(): void {
+    for (const el of this.reflowPreviewOverlays.values()) el.remove();
+    this.reflowPreviewOverlays.clear();
   }
 
   private getPrimaryShiftDirection(
