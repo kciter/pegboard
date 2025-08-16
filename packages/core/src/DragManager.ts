@@ -512,12 +512,9 @@ export class DragManager extends EventEmitter {
       // 그룹 유효성 검사: anchor 기준 delta 로 각 블록 적용
       const deltaCol = candidate.x - this.startPosition.x;
       const deltaRow = candidate.y - this.startPosition.y;
-      const allBlocks = this.getAllBlocks();
-      const allBlocksData = allBlocks.map((b) => b.getData());
-      const immovableSelected = allBlocksData.filter(
-        (b) => this.selection.has(b.id) && b.movable === false,
-      );
-      const othersNonSelected = allBlocksData.filter((b) => !this.selection.has(b.id));
+  const allBlocks = this.getAllBlocks();
+  const allBlocksData = allBlocks.map((b) => b.getData());
+  const othersNonSelected = allBlocksData.filter((b) => !this.selection.has(b.id));
       let groupValid = true;
       const nextPositions = new Map<string, GridPosition>();
       let groupRequiredBottom = 0;
@@ -533,10 +530,9 @@ export class DragManager extends EventEmitter {
           zIndex: startPos.zIndex,
         };
         groupRequiredBottom = Math.max(groupRequiredBottom, targetPos.y + d.size.height - 1);
-        // 충돌 체크: 비선택 블럭 + 선택 중 immovable 블럭과 충돌 금지
-        const others = [...othersNonSelected, ...immovableSelected];
+        // 충돌 체크: 비선택 블럭과의 충돌 금지
         const collidesWithOthers =
-          !allowOverlap && this.grid.checkGridCollision(targetPos, d.size, d.id, others);
+          !allowOverlap && this.grid.checkGridCollision(targetPos, d.size, d.id, othersNonSelected);
         const valid = this.grid.isValidGridPosition(targetPos, d.size) && !collidesWithOthers;
         if (!valid) {
           groupValid = false;
@@ -564,21 +560,15 @@ export class DragManager extends EventEmitter {
         this.pendingMoveGridPosition = valid ? candidate : null;
         this.updateHintOverlay(candidate, blockData.size, valid);
       } else {
-        // 재배치 전략 적용(shift-down)
-        const immovable = othersData.filter((d) => d.movable === false);
-        const blocksForCollision = immovable.map((d) => ({
-          id: d.id,
-          position: d.position,
-          size: d.size,
-        }));
-        const collideImmovable = this.grid.checkGridCollision(
+        // 겹침 금지: 모든 다른 블록과 충돌 금지
+        const collideAny = this.grid.checkGridCollision(
           candidate,
           blockData.size,
           blockData.id,
-          blocksForCollision,
+          othersData,
         );
         const within = this.grid.isValidGridPosition(candidate, blockData.size);
-        if (collideImmovable || !within) {
+        if (collideAny || !within) {
           this.pendingMoveGridPosition = null;
           this.updateHintOverlay(candidate, blockData.size, false);
         } else {
@@ -869,7 +859,7 @@ export class DragManager extends EventEmitter {
     const moving = blocks.filter((b) => b.getData().movable !== false);
     if (moving.length === 0) return;
 
-    const existing = this.getAllBlocks().map((b) => b.getData());
+  const existing = this.getAllBlocks().map((b) => b.getData());
     const allow = this.getAllowOverlap ? this.getAllowOverlap() : false;
 
     // 검증: 이동 대상 각각에 대해, 비이동 대상(모든 나머지)과 충돌/경계 체크
@@ -881,7 +871,7 @@ export class DragManager extends EventEmitter {
         y: d.position.y + delta.drow,
         zIndex: d.position.zIndex,
       };
-      const others = existing.filter((e) => e.id !== d.id);
+  const others = existing.filter((e) => e.id !== d.id);
       const ok =
         (allow || !this.grid.checkGridCollision(targetPos, d.size, d.id, others)) &&
         this.grid.isValidGridPosition(targetPos, d.size);
