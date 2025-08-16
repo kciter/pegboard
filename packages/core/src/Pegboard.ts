@@ -74,10 +74,13 @@ export class Pegboard extends EventEmitter {
       (rows: number) => {
         if (!this.autoGrowRows) return;
         const cfg = this.grid.getConfig();
-        const next = Math.max(rows | 0, this.minRows || 0);
+        // baseline: 최초 입력 받은 rows(=this.minRows)와 현재 설정 rows 중 큰 값을 최소로 유지
+        const minBase = Math.max(this.minRows || 0, cfg.rows || 0);
+        const next = Math.max(rows | 0, minBase);
         if (!cfg.rows || cfg.rows < next) {
           this.grid.updateConfig({ rows: next });
           this.grid.applyGridStyles(this.container);
+          if (this.editable) this.grid.renderGridLines(this.container);
           this.emit('grid:changed', { grid: this.grid.getConfig() });
         }
       },
@@ -537,6 +540,10 @@ export class Pegboard extends EventEmitter {
   }
 
   setGridConfig(config: Partial<CoreTypes.GridConfig>): void {
+    // rows를 명시적으로 설정하면 baseline도 갱신
+    if (config.rows !== undefined) {
+      this.minRows = config.rows;
+    }
     this.grid.updateConfig(config);
     // autoGrowRows 상태 유지 반영
     (this.grid as any).setUnboundedRows?.(this.autoGrowRows);
@@ -833,7 +840,8 @@ export class Pegboard extends EventEmitter {
   private recomputeRowsIfNeeded(): void {
     if (!this.autoGrowRows) return;
     const cfg = this.grid.getConfig();
-    const minRows = this.minRows && this.minRows > 0 ? this.minRows : cfg.rows || 0;
+    // baseline: 최초/마지막 지정 rows를 최소로 유지(현재 rows 값에 의해 래칫되지 않도록)
+    const minRows = this.minRows || 0;
 
     // 모든 블록의 y + height - 1 의 최대값을 계산
     let bottom = 0;
@@ -842,10 +850,11 @@ export class Pegboard extends EventEmitter {
       bottom = Math.max(bottom, d.position.y + d.size.height - 1);
     }
 
-    const desired = Math.max(minRows || 0, bottom);
+    const desired = Math.max(minRows, bottom);
     if (!cfg.rows || cfg.rows !== desired) {
       this.grid.updateConfig({ rows: desired });
       this.grid.applyGridStyles(this.container);
+      if (this.editable) this.grid.renderGridLines(this.container);
       this.emit('grid:changed', { grid: this.grid.getConfig() });
     }
   }

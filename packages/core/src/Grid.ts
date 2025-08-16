@@ -27,15 +27,23 @@ export class Grid {
       gridAutoFlow: 'row dense',
     } as any;
 
-    // rows가 설정되면 컨테이너 높이를 고정
+    // rows가 설정되면 컨테이너 높이를 고정하거나(min-height) 최소 높이로 유지
     if (this.config.rows && this.config.rows > 0 && !this.unboundedRows) {
       const totalHeight =
         this.config.rows * this.config.rowHeight + this.config.gap * (this.config.rows - 1);
       (gridStyles as any).height = `${totalHeight}px`;
+      (gridStyles as any)['minHeight'] = '' as any; // 고정 높이일 때는 min-height 해제
       (gridStyles as any).overflow = container.style.overflow || 'hidden';
     } else {
-      // 동적 높이
+      // 동적 높이(unboundedRows 포함): rows 값이 있으면 최소 높이로 유지
       (gridStyles as any).height = '' as any;
+      if (this.config.rows && this.config.rows > 0) {
+        const minTotalHeight =
+          this.config.rows * this.config.rowHeight + this.config.gap * (this.config.rows - 1);
+        (gridStyles as any)['minHeight'] = `${minTotalHeight}px`;
+      } else {
+        (gridStyles as any)['minHeight'] = '' as any;
+      }
       (gridStyles as any).overflow = container.style.overflow || '';
     }
 
@@ -199,7 +207,23 @@ export class Grid {
     overlay.style.gridAutoRows = `${this.config.rowHeight}px`;
     overlay.style.gap = `${this.config.gap}px`;
 
-    const totalCells = this.config.columns * 20;
+    // 렌더할 행 수 계산: rows가 지정되면 그만큼만, 아니면 컨테이너 높이에 맞춰 계산
+    let rowsToRender = 20;
+    if (this.config.rows && this.config.rows > 0) {
+      rowsToRender = this.config.rows;
+    } else {
+      const rect = container.getBoundingClientRect();
+      const styles = getComputedStyle(container);
+      const paddingTop = parseInt(styles.paddingTop) || 0;
+      const paddingBottom = parseInt(styles.paddingBottom) || 0;
+      const innerHeight = Math.max(0, rect.height - paddingTop - paddingBottom);
+      const unit = this.config.rowHeight + this.config.gap;
+      if (unit > 0) {
+        rowsToRender = Math.max(1, Math.floor((innerHeight + this.config.gap) / unit));
+      }
+    }
+
+    const totalCells = this.config.columns * rowsToRender;
     for (let i = 0; i < totalCells; i++) {
       const cell = document.createElement('div');
       cell.className = 'pegboard-grid-cell';

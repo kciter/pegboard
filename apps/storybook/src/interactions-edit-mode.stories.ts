@@ -7,7 +7,7 @@ const meta: Meta = {
 };
 export default meta;
 
-export const EditModeDemo: StoryObj = {
+export const EditMode: StoryObj = {
   render: () => {
     const root = document.createElement('div');
     const container = document.createElement('div');
