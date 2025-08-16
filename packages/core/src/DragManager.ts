@@ -512,9 +512,9 @@ export class DragManager extends EventEmitter {
       // 그룹 유효성 검사: anchor 기준 delta 로 각 블록 적용
       const deltaCol = candidate.x - this.startPosition.x;
       const deltaRow = candidate.y - this.startPosition.y;
-  const allBlocks = this.getAllBlocks();
-  const allBlocksData = allBlocks.map((b) => b.getData());
-  const othersNonSelected = allBlocksData.filter((b) => !this.selection.has(b.id));
+      const allBlocks = this.getAllBlocks();
+      const allBlocksData = allBlocks.map((b) => b.getData());
+      const othersNonSelected = allBlocksData.filter((b) => !this.selection.has(b.id));
       let groupValid = true;
       const nextPositions = new Map<string, GridPosition>();
       let groupRequiredBottom = 0;
@@ -859,7 +859,7 @@ export class DragManager extends EventEmitter {
     const moving = blocks.filter((b) => b.getData().movable !== false);
     if (moving.length === 0) return;
 
-  const existing = this.getAllBlocks().map((b) => b.getData());
+    const existing = this.getAllBlocks().map((b) => b.getData());
     const allow = this.getAllowOverlap ? this.getAllowOverlap() : false;
 
     // 검증: 이동 대상 각각에 대해, 비이동 대상(모든 나머지)과 충돌/경계 체크
@@ -871,7 +871,7 @@ export class DragManager extends EventEmitter {
         y: d.position.y + delta.drow,
         zIndex: d.position.zIndex,
       };
-  const others = existing.filter((e) => e.id !== d.id);
+      const others = existing.filter((e) => e.id !== d.id);
       const ok =
         (allow || !this.grid.checkGridCollision(targetPos, d.size, d.id, others)) &&
         this.grid.isValidGridPosition(targetPos, d.size);

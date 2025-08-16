@@ -11,7 +11,7 @@ const preview: Preview = {
     },
     options: {
       storySort: {
-        order: ['Getting Started', 'Grid & Layout', 'Interactions', 'Data'],
+        order: ['Getting Started', 'Grid & Layout', 'Interactions', 'Data', 'Sample'],
       },
     },
   },
