@@ -27,6 +27,9 @@ export class NoteBlock extends BlockExtension<NoteBlockAttributes> {
     wrap.style.height = '100%';
     wrap.style.padding = '10px 12px';
     wrap.style.boxSizing = 'border-box';
+    wrap.style.backgroundColor = '#f0f0f0';
+    wrap.style.borderRadius = '8px';
+    wrap.style.overflow = 'hidden';
 
     const title = document.createElement('div');
     title.className = 'note-title';
