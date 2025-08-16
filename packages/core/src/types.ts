@@ -19,10 +19,18 @@ export interface GridSize {
   height: number;
 }
 
+export interface GridSizeConstraints {
+  minWidth?: number;
+  minHeight?: number;
+  maxWidth?: number;
+  maxHeight?: number;
+}
+
 export interface BlockData {
   id: string;
   type: string;
   position: GridPosition;
+  constraints?: GridSizeConstraints;
   size: GridSize;
   attributes: Record<string, any>;
   movable?: boolean;

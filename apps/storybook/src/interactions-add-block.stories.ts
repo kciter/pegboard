@@ -62,7 +62,7 @@ export const AddBlock: StoryObj<AddBlockArgs> = {
       try {
         pegboard.addBlock({
           type: 'box',
-          // position은 생략해도 autoArrange가 채워주므로 생략
+          position: { x: 1, y: 1, zIndex: 1 },
           size: { width: w, height: h },
           attributes: { text: 'Box', color: randomColor() },
         });

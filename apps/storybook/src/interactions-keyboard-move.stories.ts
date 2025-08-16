@@ -39,6 +39,7 @@ export const KeyboardMove: StoryObj<KeyboardMoveArgs> = {
 
     pegboard.addBlock({
       type: 'box',
+      position: { x: 1, y: 1, zIndex: 1 },
       size: { width: 2, height: 2 },
     });
 

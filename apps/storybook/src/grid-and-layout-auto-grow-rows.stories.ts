@@ -30,6 +30,7 @@ export const AutoGrowRows: StoryObj = {
 
     pegboard.addBlock({
       type: 'box',
+      position: { x: 0, y: 0, zIndex: 1 },
       size: { width: 4, height: 4 },
       attributes: { color: randomColor() },
     });

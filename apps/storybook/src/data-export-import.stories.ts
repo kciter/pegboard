@@ -93,6 +93,7 @@ export const ExportAndImport: StoryObj<ExportImportArgs> = {
     for (let i = 0; i < 3; i++) {
       pegboard.addBlock({
         type: 'box',
+        position: { x: i * 4, y: 1, zIndex: i + 1 },
         size: { width: 3, height: 2 },
         attributes: { text: `Box ${i + 1}`, color: colors[i % colors.length] },
       });
@@ -107,6 +108,7 @@ export const ExportAndImport: StoryObj<ExportImportArgs> = {
       try {
         pegboard.addBlock({
           type: 'box',
+          position: { x: 1, y: 1, zIndex: 1 },
           size: { width: w, height: h },
           attributes: { text: 'Box', color: randomColor() },
         });

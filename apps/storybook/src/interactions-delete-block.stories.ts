@@ -65,6 +65,7 @@ export const DeleteBlock: StoryObj<DeleteBlockArgs> = {
     for (let i = 0; i < 3; i++) {
       pegboard.addBlock({
         type: 'box',
+        position: { x: i * 4, y: 1, zIndex: i + 1 },
         size: { width: 3, height: 2 },
         attributes: { text: `Box ${i + 1}`, color: colors[i % colors.length] },
       });
@@ -73,6 +74,7 @@ export const DeleteBlock: StoryObj<DeleteBlockArgs> = {
     addBtn.onclick = () => {
       pegboard.addBlock({
         type: 'box',
+        position: { x: 1, y: 1, zIndex: 1 },
         size: { width: 2, height: 2 },
         attributes: { text: 'New', color: `hsl(${Math.floor(Math.random() * 360)},70%,60%)` },
       });

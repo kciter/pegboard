@@ -1,19 +1,7 @@
 import { BlockData } from './types';
 
-export interface BlockLayout {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  minWidth?: number;
-  minHeight?: number;
-  maxWidth?: number;
-  maxHeight?: number;
-}
-
 export abstract class BlockExtension<Attrs extends Record<string, any>> {
   abstract readonly type: string;
-  readonly defaultLayout?: BlockLayout;
   readonly defaultAttributes?: Attrs;
   constructor() {}
 

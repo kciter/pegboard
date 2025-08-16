@@ -730,8 +730,7 @@ export class DragManager extends EventEmitter {
 
     // 제약
     const blockData = this.selectedBlock.getData();
-    const plugin = this.getPlugin ? this.getPlugin(blockData.type) : undefined;
-    const layout = plugin?.defaultLayout;
+    const layout = blockData.constraints;
     if (layout) {
       const clamp = (v: number, min?: number, max?: number) => {
         if (min !== undefined) v = Math.max(min, v);

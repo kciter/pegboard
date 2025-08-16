@@ -6,12 +6,14 @@ import { DragManager } from './DragManager';
 import { EventEmitter } from './EventEmitter';
 import { generateId, deepClone } from './utils';
 
+type PartialKeys<T, K extends keyof T> = Omit<T, K> & Partial<Pick<T, K>>;
+
 export class Pegboard extends EventEmitter {
   private container: HTMLElement;
   private grid: Grid;
   private dragManager!: DragManager;
   private blocks: Map<string, Block> = new Map();
-  private plugins: Map<string, AnyBlockExtension> = new Map();
+  private extensions: Map<string, AnyBlockExtension> = new Map();
   private editable: boolean = true;
   private nextZIndex: number = 1;
   private allowOverlap: boolean;
@@ -62,7 +64,7 @@ export class Pegboard extends EventEmitter {
       (id: string) => this.blocks.get(id),
       () => Array.from(this.blocks.values()),
       () => this.allowOverlap,
-      (type: string) => this.plugins.get(type),
+      (type: string) => this.extensions.get(type),
       () => this.lassoSelection,
       () => this.keyboardMove,
       () => this.keyboardDelete,
@@ -111,11 +113,11 @@ export class Pegboard extends EventEmitter {
   }
 
   registerExtension(plugin: AnyBlockExtension): void {
-    this.plugins.set(plugin.type, plugin);
+    this.extensions.set(plugin.type, plugin);
   }
 
   unregisterExtension(type: string): void {
-    this.plugins.delete(type);
+    this.extensions.delete(type);
   }
 
   // 요청 위치 주변에서 가장 가까운 유효한 위치 탐색(없으면 null)
@@ -157,22 +159,16 @@ export class Pegboard extends EventEmitter {
     return null;
   }
 
-  addBlock(data: Partial<CoreTypes.BlockData>): string {
-    const plugin = this.plugins.get(data.type || 'default');
-    if (!plugin && data.type && data.type !== 'default') {
+  addBlock(data: PartialKeys<CoreTypes.BlockData, 'id' | 'attributes'>): string {
+    const extension = this.extensions.get(data.type);
+    if (!extension) {
       throw new Error(`Plugin not found for block type: ${data.type}`);
     }
 
-    // plugin.defaultLayout(x,y,width,height) -> gridPosition + gridSize 변환
-    const layout = plugin?.defaultLayout;
-    const defaultSize = layout
-      ? { width: layout.width, height: layout.height }
-      : { width: 2, height: 2 };
-
     const existingBlocks = Array.from(this.blocks.values()).map((b) => b.getData());
 
-    const initialSize = data.size || defaultSize;
-    // defaultLayout 제약에 맞게 초기 size clamp
+    const layout = data.constraints;
+    const initialSize = data.size;
     let clampedSize = { ...initialSize };
     if (layout) {
       const clamp = (val: number, min?: number, max?: number) => {
@@ -185,63 +181,42 @@ export class Pegboard extends EventEmitter {
     }
 
     // 요청된/기본 시작 위치 결정
-    const requestedPosition: CoreTypes.GridPosition | null = data.position
-      ? { x: data.position.x, y: data.position.y, zIndex: data.position.zIndex ?? this.nextZIndex }
-      : layout
-        ? { x: layout.x, y: layout.y, zIndex: this.nextZIndex }
-        : null;
+    const requestedPosition = {
+      x: data.position.x,
+      y: data.position.y,
+      zIndex: data.position.zIndex ?? this.nextZIndex,
+    };
 
     let finalPosition: CoreTypes.GridPosition;
 
-    if (requestedPosition) {
-      if (this.allowOverlap) {
-        // 중첩 허용이면 그대로 배치(경계는 isValidGridPosition으로만 확인)
-        if (!this.grid.isValidGridPosition(requestedPosition, clampedSize)) {
-          // 요청 위치가 유효하지 않으면 주변 탐색
-          const near = this.findNearestAvailablePosition(
-            requestedPosition,
-            clampedSize,
-            existingBlocks,
-          );
-          if (!near) throw new Error('No available position');
-          finalPosition = near;
-        } else {
-          finalPosition = requestedPosition;
-        }
+    if (this.allowOverlap) {
+      // 중첩 허용이면 그대로 배치(경계는 isValidGridPosition으로만 확인)
+      if (!this.grid.isValidGridPosition(requestedPosition, clampedSize)) {
+        // 요청 위치가 유효하지 않으면 주변 탐색
+        const near = this.findNearestAvailablePosition(
+          requestedPosition,
+          clampedSize,
+          existingBlocks,
+        );
+        if (!near) throw new Error('No available position');
+        finalPosition = near;
       } else {
-        const noCollision =
-          this.grid.isValidGridPosition(requestedPosition, clampedSize) &&
-          !this.grid.checkGridCollision(requestedPosition, clampedSize, '', existingBlocks);
-        if (noCollision) {
-          finalPosition = requestedPosition;
-        } else {
-          const near = this.findNearestAvailablePosition(
-            requestedPosition,
-            clampedSize,
-            existingBlocks,
-          );
-          if (!near) throw new Error('No available position');
-          finalPosition = near;
-        }
+        finalPosition = requestedPosition;
       }
     } else {
-      // 요청 위치가 없으면, layout이 없을 경우 일반적 빈칸 탐색
-      const startPos = layout ? { x: layout.x, y: layout.y, zIndex: this.nextZIndex } : null;
-      if (startPos) {
-        const canUseStart =
-          (this.allowOverlap ||
-            !this.grid.checkGridCollision(startPos, clampedSize, '', existingBlocks)) &&
-          this.grid.isValidGridPosition(startPos, clampedSize);
-        if (canUseStart) {
-          finalPosition = startPos;
-        } else {
-          const near = this.findNearestAvailablePosition(startPos, clampedSize, existingBlocks);
-          if (!near) throw new Error('No available position');
-          finalPosition = near;
-        }
+      const noCollision =
+        this.grid.isValidGridPosition(requestedPosition, clampedSize) &&
+        !this.grid.checkGridCollision(requestedPosition, clampedSize, '', existingBlocks);
+      if (noCollision) {
+        finalPosition = requestedPosition;
       } else {
-        const pos = this.grid.findAvailablePosition(clampedSize, existingBlocks);
-        finalPosition = { x: pos.x, y: pos.y, zIndex: this.nextZIndex };
+        const near = this.findNearestAvailablePosition(
+          requestedPosition,
+          clampedSize,
+          existingBlocks,
+        );
+        if (!near) throw new Error('No available position');
+        finalPosition = near;
       }
     }
 
@@ -257,7 +232,7 @@ export class Pegboard extends EventEmitter {
             : this.nextZIndex++,
       },
       size: clampedSize,
-      attributes: { ...(plugin?.defaultAttributes || {}), ...(data.attributes || {}) },
+      attributes: { ...(extension?.defaultAttributes || {}), ...(data.attributes || {}) },
       movable: data.movable,
       resizable: data.resizable,
     };
@@ -268,11 +243,11 @@ export class Pegboard extends EventEmitter {
     this.blocks.set(blockData.id, block);
     this.container.appendChild(block.getElement());
 
-    if (plugin) {
-      plugin.onCreate?.(blockData as any, block.getContentElement(), this.editable);
-      plugin.onBeforeRender?.(blockData as any, block.getContentElement(), this.editable);
-      plugin.render(blockData as any, block.getContentElement(), this.editable);
-      plugin.onAfterRender?.(blockData as any, block.getContentElement(), this.editable);
+    if (extension) {
+      extension.onCreate?.(blockData as any, block.getContentElement(), this.editable);
+      extension.onBeforeRender?.(blockData as any, block.getContentElement(), this.editable);
+      extension.render(blockData as any, block.getContentElement(), this.editable);
+      extension.onAfterRender?.(blockData as any, block.getContentElement(), this.editable);
     }
 
     this.emit('block:added', { block: blockData });
@@ -289,9 +264,9 @@ export class Pegboard extends EventEmitter {
       this.dragManager.selectBlock(null);
     }
 
-    const plugin = this.plugins.get(block.getData().type);
-    if (plugin) {
-      plugin.onDestroy?.(block.getData() as any);
+    const extension = this.extensions.get(block.getData().type);
+    if (extension) {
+      extension.onDestroy?.(block.getData() as any);
     }
 
     block.destroy();
@@ -330,8 +305,7 @@ export class Pegboard extends EventEmitter {
         .map((b) => b.getData())
         .filter((b) => b.id !== id);
 
-      const plugin = this.plugins.get(currentData.type);
-      const layout = plugin?.defaultLayout;
+      const layout = updates.constraints;
       let candidateSize = { ...updates.size };
       if (layout) {
         if (layout.minWidth) candidateSize.width = Math.max(layout.minWidth, candidateSize.width);
@@ -365,12 +339,12 @@ export class Pegboard extends EventEmitter {
     if (updates.attributes) {
       block.setAttributes(updates.attributes);
 
-      const plugin = this.plugins.get(currentData.type);
-      if (plugin) {
-        plugin.onBeforeRender?.(newData as any, block.getContentElement(), this.editable);
-        plugin.render(newData as any, block.getContentElement(), this.editable);
-        plugin.onUpdateAttributes?.(newData as any, block.getContentElement(), this.editable);
-        plugin.onAfterRender?.(newData as any, block.getContentElement(), this.editable);
+      const extension = this.extensions.get(currentData.type);
+      if (extension) {
+        extension.onBeforeRender?.(newData as any, block.getContentElement(), this.editable);
+        extension.render(newData as any, block.getContentElement(), this.editable);
+        extension.onUpdateAttributes?.(newData as any, block.getContentElement(), this.editable);
+        extension.onAfterRender?.(newData as any, block.getContentElement(), this.editable);
       }
     }
 
@@ -676,8 +650,7 @@ export class Pegboard extends EventEmitter {
       .map((b) => b.getData())
       .filter((b) => b.id !== id);
 
-    const plugin = this.plugins.get(blockData.type);
-    const layout = plugin?.defaultLayout;
+    const layout = block.getData().constraints;
     let candidateSize = { ...gridSize };
     if (layout) {
       if (layout.minWidth) candidateSize.width = Math.max(layout.minWidth, candidateSize.width);
