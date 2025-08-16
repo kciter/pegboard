@@ -101,6 +101,8 @@ export class DragManager extends EventEmitter {
 
     event.preventDefault();
 
+    // 전역 transition 초기화 제거: 드래그 중 트랜지션 제어는 CSS(.pegboard-block-dragging)로 처리
+
     const blockData = block.getData();
     const rawIsResizeHandle =
       target.classList.contains('pegboard-resize-handle') ||
@@ -739,6 +741,7 @@ export class DragManager extends EventEmitter {
       if (this.dragState.dragType === 'move') {
         this.clearDragPreview();
         const oldPosition = { ...this.startPosition };
+        // 전역 transition 초기화 제거 (Pegboard FLIP 보존)
         if (this.selection.size > 1) {
           if (this.pendingGroupMovePositions) {
             // 그룹 적용
@@ -747,7 +750,6 @@ export class DragManager extends EventEmitter {
               if (!b) continue;
               b.setPosition(pos);
             }
-            // anchor 기준 이벤트 하나만 발행
             this.emit('block:moved', {
               block: this.selectedBlock.getData(),
               oldPosition,
@@ -757,7 +759,6 @@ export class DragManager extends EventEmitter {
           this.clearHintOverlay();
         } else {
           if (this.pendingMoveGridPosition) {
-            // 먼저 비선택 블록들의 재배치 적용(있다면)
             if (this.pendingReflowPositions) {
               for (const [id, pos] of this.pendingReflowPositions.entries()) {
                 const b = this.getBlock(id);
@@ -765,7 +766,6 @@ export class DragManager extends EventEmitter {
                 b.setPosition(pos);
               }
             }
-            // 앵커 적용
             this.selectedBlock.setPosition(this.pendingMoveGridPosition);
             this.emit('block:moved', {
               block: this.selectedBlock.getData(),
@@ -778,8 +778,8 @@ export class DragManager extends EventEmitter {
           this.clearHintOverlay();
         }
       } else if (this.dragState.dragType === 'resize') {
-        // 프리뷰 적용
         const oldSize = { ...this.startSize };
+        // 전역 transition 초기화 제거
         if (this.pendingResizeGridPosition && this.pendingResizeGridSize) {
           this.selectedBlock.setPosition(this.pendingResizeGridPosition);
           this.selectedBlock.setSize(this.pendingResizeGridSize);
@@ -997,6 +997,11 @@ export class DragManager extends EventEmitter {
 
   getSelectedBlock(): Block | null {
     return this.selectedBlock;
+  }
+
+  // 외부에서 현재 드래그 중인지 확인할 수 있도록 공개 메서드 추가
+  isDragging(): boolean {
+    return !!this.dragState.isDragging;
   }
 
   // 선택된 여러 블럭 동시 이동 (키보드/툴바 같은 외부에서 호출할 수 있도록)

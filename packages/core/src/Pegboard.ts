@@ -92,15 +92,19 @@ export class Pegboard extends EventEmitter {
 
     this.dragManager.on('block:moved', ({ block, oldPosition }) => {
       this.emit('block:moved', { block, oldPosition });
-      // 드롭 후 자동 정렬
-      this.autoArrangeIfNeeded();
-      // 행 자동 증감
-      this.recomputeRowsIfNeeded();
+      // 드래그 종료 후 다음 프레임에 자동 정렬 및 rows 보정 실행
+      requestAnimationFrame(() => {
+        this.autoArrangeIfNeeded();
+        this.recomputeRowsIfNeeded();
+      });
     });
 
     this.dragManager.on('block:resized', ({ block, oldSize }) => {
       this.emit('block:resized', { block, oldSize });
-      this.recomputeRowsIfNeeded();
+      requestAnimationFrame(() => {
+        this.recomputeRowsIfNeeded();
+        this.autoArrangeIfNeeded();
+      });
     });
     this.dragManager.on('block:selected', ({ block }) => {
       this.emit('block:selected', { block });
@@ -112,6 +116,8 @@ export class Pegboard extends EventEmitter {
 
   private autoArrangeIfNeeded(): void {
     if (!this.autoArrange) return;
+    // 드래그 중에는 자동 정렬 애니메이션을 적용하지 않음
+    if ((this as any).dragManager?.isDragging?.()) return;
     const blocks = Array.from(this.blocks.values());
     if (blocks.length <= 1) return;
 

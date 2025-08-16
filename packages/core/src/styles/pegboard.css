@@ -116,3 +116,6 @@
 .pegboard-viewer-mode .pegboard-resize-handle-s,
 .pegboard-viewer-mode .pegboard-resize-handle-w,
 .pegboard-viewer-mode .pegboard-resize-handle-e { display: none; }
+
+/* 드래그 중에는 transform 애니메이션 비활성화 */
+.pegboard-block-dragging { transition: none !important; }
