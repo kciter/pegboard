@@ -170,6 +170,7 @@ export class Pegboard extends EventEmitter {
     const layout = data.constraints;
     const initialSize = data.size;
     let clampedSize = { ...initialSize };
+    // 1) 플러그인 제약(min/max) 우선 적용
     if (layout) {
       const clamp = (val: number, min?: number, max?: number) => {
         if (min !== undefined) val = Math.max(min, val);
@@ -178,6 +179,12 @@ export class Pegboard extends EventEmitter {
       };
       clampedSize.width = clamp(clampedSize.width, layout.minWidth, layout.maxWidth);
       clampedSize.height = clamp(clampedSize.height, layout.minHeight, layout.maxHeight);
+    }
+    // 2) 그리드 경계에 맞춰 추가 클램프 (너비는 columns, 높이는 rows cap이 있는 경우에 한해)
+    const cfg = this.grid.getConfig();
+    clampedSize.width = Math.max(1, Math.min(clampedSize.width, cfg.columns));
+    if (cfg.rows && cfg.rows > 0) {
+      clampedSize.height = Math.max(1, Math.min(clampedSize.height, cfg.rows));
     }
 
     // 요청된/기본 시작 위치 결정
@@ -232,6 +239,7 @@ export class Pegboard extends EventEmitter {
             : this.nextZIndex++,
       },
       size: clampedSize,
+      constraints: data.constraints,
       attributes: { ...(extension?.defaultAttributes || {}), ...(data.attributes || {}) },
       movable: data.movable,
       resizable: data.resizable,
@@ -305,15 +313,24 @@ export class Pegboard extends EventEmitter {
         .map((b) => b.getData())
         .filter((b) => b.id !== id);
 
-      const layout = updates.constraints;
+      const layout = updates.constraints ?? currentData.constraints;
       let candidateSize = { ...updates.size };
+      // 1) 플러그인 제약(min/max)
       if (layout) {
-        if (layout.minWidth) candidateSize.width = Math.max(layout.minWidth, candidateSize.width);
-        if (layout.minHeight)
+        if (layout.minWidth !== undefined)
+          candidateSize.width = Math.max(layout.minWidth, candidateSize.width);
+        if (layout.minHeight !== undefined)
           candidateSize.height = Math.max(layout.minHeight, candidateSize.height);
-        if (layout.maxWidth) candidateSize.width = Math.min(layout.maxWidth, candidateSize.width);
-        if (layout.maxHeight)
+        if (layout.maxWidth !== undefined)
+          candidateSize.width = Math.min(layout.maxWidth, candidateSize.width);
+        if (layout.maxHeight !== undefined)
           candidateSize.height = Math.min(layout.maxHeight, candidateSize.height);
+      }
+      // 2) 그리드 경계 클램프
+      const cfg = this.grid.getConfig();
+      candidateSize.width = Math.max(1, Math.min(candidateSize.width, cfg.columns));
+      if (cfg.rows && cfg.rows > 0) {
+        candidateSize.height = Math.max(1, Math.min(candidateSize.height, cfg.rows));
       }
 
       const noCollision =
@@ -334,6 +351,10 @@ export class Pegboard extends EventEmitter {
       if (selected && selected.getData().id === id) {
         this.dragManager.selectBlock(block);
       }
+    }
+
+    if (updates.constraints !== undefined) {
+      block.setConstraints(updates.constraints as any);
     }
 
     if (updates.attributes) {

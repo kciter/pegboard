@@ -1,4 +1,4 @@
-import { BlockData, GridPosition, GridSize, Position } from './types';
+import { BlockData, GridPosition, GridSize, Position, GridSizeConstraints } from './types';
 import { createElement } from './utils';
 
 export class Block {
@@ -75,6 +75,10 @@ export class Block {
 
   setAttributes(attributes: Record<string, any>): void {
     this.data.attributes = { ...this.data.attributes, ...attributes };
+  }
+
+  setConstraints(constraints: GridSizeConstraints | undefined): void {
+    this.data.constraints = constraints;
   }
 
   setSelected(selected: boolean): void {

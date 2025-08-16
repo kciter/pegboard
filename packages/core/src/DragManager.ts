@@ -702,82 +702,94 @@ export class DragManager extends EventEmitter {
     const gridDeltaX = Math.round(deltaX / this.dragState.cellTotalWidth!);
     const gridDeltaY = Math.round(deltaY / this.dragState.rowUnit!);
 
-    let candidatePos = { ...this.startPosition };
-    let candidateSize = { ...this.startSize };
-
-    if (direction.includes('e')) {
-      candidateSize.width = Math.max(1, this.startSize.width + gridDeltaX);
-    }
-    if (direction.includes('w')) {
-      const newSpan = Math.max(1, this.startSize.width - gridDeltaX);
-      const change = this.startSize.width - newSpan;
-      if (this.startPosition.x + change >= 1) {
-        candidatePos.x = this.startPosition.x + change;
-        candidateSize.width = newSpan;
-      }
-    }
-    if (direction.includes('s')) {
-      candidateSize.height = Math.max(1, this.startSize.height + gridDeltaY);
-    }
-    if (direction.includes('n')) {
-      const newSpan = Math.max(1, this.startSize.height - gridDeltaY);
-      const change = this.startSize.height - newSpan;
-      if (this.startPosition.y + change >= 1) {
-        candidatePos.y = this.startPosition.y + change;
-        candidateSize.height = newSpan;
-      }
-    }
-
-    // 제약
+    // 통합 제약 계산: 방향별로 플러그인 제약과 그리드 경계를 함께 고려
     const blockData = this.selectedBlock.getData();
-    const layout = blockData.constraints;
-    if (layout) {
-      const clamp = (v: number, min?: number, max?: number) => {
-        if (min !== undefined) v = Math.max(min, v);
-        if (max !== undefined) v = Math.min(max, v);
-        return v;
-      };
-      const beforeW = candidateSize.width;
-      const beforeH = candidateSize.height;
-      candidateSize.width = clamp(candidateSize.width, layout.minWidth, layout.maxWidth);
-      candidateSize.height = clamp(candidateSize.height, layout.minHeight, layout.maxHeight);
-      if (candidateSize.width !== beforeW && direction.includes('w')) {
-        candidatePos.x = this.startPosition.x + (this.startSize.width - candidateSize.width);
-      }
-      if (candidateSize.height !== beforeH && direction.includes('n')) {
-        candidatePos.y = this.startPosition.y + (this.startSize.height - candidateSize.height);
-      }
-    }
-
-    // 그리드 경계로 클램프: 정해진 영역을 넘지 않도록
+    const layout = blockData.constraints || {};
     const cfg = this.grid.getConfig();
     const columns = cfg.columns;
     const hasRowCap = !!cfg.rows && cfg.rows > 0;
     const maxRows = hasRowCap ? (cfg.rows as number) : Infinity;
 
-    // 동쪽 확장: 우측 경계 내로 폭 제한
-    if (direction.includes('e')) {
-      const maxWidth = Math.max(1, columns - candidatePos.x + 1);
-      candidateSize.width = Math.min(candidateSize.width, maxWidth);
-    }
-    // 서쪽 확장: 우측 끝 고정(endXFixed), 좌측 경계 내로 위치/폭 재계산
-    if (direction.includes('w')) {
-      const endXFixed = this.startPosition.x + this.startSize.width - 1;
-      candidatePos.x = Math.max(1, Math.min(candidatePos.x, endXFixed));
-      candidateSize.width = Math.max(1, endXFixed - candidatePos.x + 1);
-    }
-    // 남쪽 확장: 행 상한이 있을 때만 높이 제한
-    if (direction.includes('s') && hasRowCap) {
-      const maxHeight = Math.max(1, (maxRows as number) - candidatePos.y + 1);
-      candidateSize.height = Math.min(candidateSize.height, maxHeight);
-    }
-    // 북쪽 확장: 하단 끝 고정(endYFixed), 상단 경계 내로 위치/높이 재계산
-    if (direction.includes('n')) {
-      const endYFixed = this.startPosition.y + this.startSize.height - 1;
-      candidatePos.y = Math.max(1, Math.min(candidatePos.y, endYFixed));
-      candidateSize.height = Math.max(1, endYFixed - candidatePos.y + 1);
+    const clamp = (v: number, min?: number, max?: number) => {
+      if (min !== undefined) v = Math.max(min, v);
+      if (max !== undefined) v = Math.min(max, v);
+      return v;
+    };
+
+    const minW = layout.minWidth ?? 1;
+    const maxWPlugin = layout.maxWidth ?? Infinity;
+    const minH = layout.minHeight ?? 1;
+    const maxHPlugin = layout.maxHeight ?? Infinity;
+
+    const endXFixed = this.startPosition.x + this.startSize.width - 1; // 서쪽 리사이즈 시 우측 엣지 고정
+    const endYFixed = this.startPosition.y + this.startSize.height - 1; // 북쪽 리사이즈 시 하단 엣지 고정
+
+    let candidatePos = { ...this.startPosition };
+    let candidateSize = { ...this.startSize };
+
+    // 가로 방향 처리
+    let impossibleByMin = false;
+    if (direction.includes('e') || direction.includes('w')) {
+      if (direction.includes('e')) {
+        // 동쪽: x는 고정, width만 증가/감소. 컬럼 경계와 제약을 동시 고려.
+        const rawW = this.startSize.width + gridDeltaX;
+        const maxWGrid = columns - this.startPosition.x + 1; // 우측 경계
+        const maxWAll = Math.min(maxWPlugin, maxWGrid);
+        if (minW > maxWAll) impossibleByMin = true;
+        // min을 만족할 수 없는 경우에도 그리드 경계 내로만 움직이며 invalid로 표기
+        let w = clamp(rawW, 1, Math.max(1, maxWAll));
+        if (minW <= maxWAll) w = Math.max(w, minW);
+        candidateSize.width = w;
+      }
+      if (direction.includes('w')) {
+        // 서쪽: 우측 엣지(endXFixed) 고정, width 변화에 따라 x 재계산
+        const rawW = this.startSize.width - gridDeltaX;
+        const maxWGrid = endXFixed; // 좌측 경계가 1이므로 width 최대치는 endXFixed(=rightEdgeIndex)
+        const maxWAll = Math.min(maxWPlugin, maxWGrid);
+        if (minW > maxWAll) impossibleByMin = true;
+        // minW가 maxWAll보다 큰 경우엔 그리드 경계 우선 (만족 불가), 가능한 최대치로 제한
+        const wClamped = clamp(rawW, 1, Math.max(1, maxWAll));
+        candidateSize.width = Math.max(1, Math.min(wClamped, Math.max(1, maxWAll)));
+        candidateSize.width = Math.max(1, Math.min(candidateSize.width, maxWAll));
+        candidateSize.width = Math.max(1, Math.min(candidateSize.width, maxWAll));
+        // minW 적용 (불가능하면 그리드 경계치 유지)
+        candidateSize.width = Math.max(candidateSize.width, 1);
+        if (minW <= maxWAll) {
+          candidateSize.width = Math.max(candidateSize.width, minW);
+        }
+        // 위치 재계산 (우측 고정)
+        candidatePos.x = Math.max(1, endXFixed - candidateSize.width + 1);
+      }
     }
 
+    // 세로 방향 처리
+    if (direction.includes('s') || direction.includes('n')) {
+      if (direction.includes('s')) {
+        // 남쪽: y 고정, height 변화. 행 상한(cap)이 있으면 그리드 경계 포함.
+        const rawH = this.startSize.height + gridDeltaY;
+        const maxHGrid = hasRowCap ? maxRows - this.startPosition.y + 1 : Infinity;
+        const maxHAll = Math.min(maxHPlugin, maxHGrid);
+        if (minH > maxHAll) impossibleByMin = true;
+        let h = clamp(rawH, 1, Math.max(1, maxHAll));
+        if (minH <= maxHAll) h = Math.max(h, minH);
+        candidateSize.height = h;
+      }
+      if (direction.includes('n')) {
+        // 북쪽: 하단 엣지(endYFixed) 고정, height 변화에 따라 y 재계산
+        const rawH = this.startSize.height - gridDeltaY;
+        const maxHGrid = endYFixed; // 상단 경계가 1이므로 최대 높이
+        const maxHAll = Math.min(maxHPlugin, maxHGrid);
+        if (minH > maxHAll) impossibleByMin = true;
+        const hClamped = clamp(rawH, 1, Math.max(1, maxHAll));
+        candidateSize.height = Math.max(1, Math.min(hClamped, Math.max(1, maxHAll)));
+        if (minH <= maxHAll) {
+          candidateSize.height = Math.max(candidateSize.height, minH);
+        }
+        candidatePos.y = Math.max(1, endYFixed - candidateSize.height + 1);
+      }
+    }
+
+    // 최종 유효성 및 충돌 검사
     const allowOverlap = this.getAllowOverlap ? this.getAllowOverlap() : false;
     const existingBlocks = this.getAllBlocks()
       .map((b) => b.getData())
@@ -785,7 +797,8 @@ export class DragManager extends EventEmitter {
     const collides =
       !allowOverlap &&
       this.grid.checkGridCollision(candidatePos, candidateSize, blockData.id, existingBlocks);
-    const valid = this.grid.isValidGridPosition(candidatePos, candidateSize) && !collides;
+    const valid =
+      this.grid.isValidGridPosition(candidatePos, candidateSize) && !collides && !impossibleByMin;
 
     // 힌트 업데이트 (실제 블록 변경 안 함)
     this.updateHintOverlay(candidatePos, candidateSize, valid);
