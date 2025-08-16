@@ -45,6 +45,7 @@ export interface GridConfig {
 }
 
 export type DragReflowStrategy = 'none' | 'shift-down' | 'pack-top';
+export type GridOverlayMode = 'always' | 'never' | 'active';
 
 export interface PegboardConfig {
   container: HTMLElement;
@@ -59,6 +60,7 @@ export interface PegboardConfig {
   keyboardMove?: boolean; // 방향키 이동 허용 여부(기본 true)
   keyboardDelete?: boolean; // Delete/Backspace 삭제 허용 여부(기본 false)
   autoGrowRows?: boolean; // true면 컨텐츠 최하단에 맞춰 rows 자동 증감(초기 rows는 minRows)
+  gridOverlayMode?: GridOverlayMode; // 'always' | 'never' | 'active'
 }
 
 export interface DragState {
@@ -88,6 +90,8 @@ export interface EventMap {
   'selection:changed': { ids: string[] };
   'block:edit:entered': { block: BlockData };
   'block:edit:exited': { block: BlockData };
+  'interaction:active': { mode: 'move' | 'resize' };
+  'interaction:idle': {};
 }
 
 export interface SerializedPegboardData {

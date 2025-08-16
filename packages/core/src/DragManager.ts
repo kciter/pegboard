@@ -32,6 +32,7 @@ export class DragManager extends EventEmitter {
   private groupMoveStartPositions: Map<string, GridPosition> = new Map();
   private groupStartPixelPos: Map<string, { left: number; top: number }> = new Map();
   private pendingGroupMovePositions: Map<string, GridPosition> | null = null;
+  private interactionNotified: boolean = false;
 
   constructor(
     private container: HTMLElement,
@@ -210,6 +211,8 @@ export class DragManager extends EventEmitter {
       startPosition: { x: event.clientX, y: event.clientY },
       targetBlockId: blockId,
     };
+    // 실제 이동이 발생할 때 최초 1회 알림
+    this.interactionNotified = false;
 
     // 다중 선택 드래그를 위해, 선택 보존 로직
     if (isResizeHandle) {
@@ -361,6 +364,10 @@ export class DragManager extends EventEmitter {
       return;
     }
     if (!this.dragState.isDragging || !this.selectedBlock) return;
+    if (!this.interactionNotified) {
+      this.emit('interaction:active', { mode: this.dragState.dragType } as any);
+      this.interactionNotified = true;
+    }
     if (this.dragState.dragType === 'move') {
       this.handleSmoothMove(event);
     } else if (this.dragState.dragType === 'resize') {
@@ -638,6 +645,8 @@ export class DragManager extends EventEmitter {
       this.finalizeLasso();
     }
     this.resetDragState();
+    // 인터랙션 종료 알림
+    this.emit('interaction:idle', {} as any);
   }
 
   private resetDragState(): void {
@@ -651,6 +660,7 @@ export class DragManager extends EventEmitter {
     this.pointerDownOffset = null;
     this.groupMoveStartPositions.clear();
     this.groupStartPixelPos.clear();
+    this.interactionNotified = false;
   }
 
   private handleMove(event: MouseEvent): void {

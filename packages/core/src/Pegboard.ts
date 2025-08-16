@@ -23,6 +23,8 @@ export class Pegboard extends EventEmitter {
   private autoGrowRows: boolean = false; // 새 옵션
   private minRows: number | undefined; // 초기 rows를 최소값으로 보관
   private editingBlockId: string | null = null;
+  private gridOverlayMode: CoreTypes.GridOverlayMode = 'always';
+  private isInteractionActive: boolean = false; // move/resize 중 여부
 
   constructor(config: CoreTypes.PegboardConfig) {
     super();
@@ -36,6 +38,7 @@ export class Pegboard extends EventEmitter {
     this.keyboardDelete = config.keyboardDelete ?? false;
     this.autoGrowRows = config.autoGrowRows ?? false;
     this.minRows = config.grid.rows; // 지정되었으면 최소로 기억
+    this.gridOverlayMode = config.gridOverlayMode ?? 'always';
 
     // autoGrowRows일 때는 검증 단계에서 rows 상한을 넘는 배치도 임시 허용하도록 Grid에 힌트
     (this.grid as any).setUnboundedRows?.(this.autoGrowRows);
@@ -80,7 +83,7 @@ export class Pegboard extends EventEmitter {
         if (!cfg.rows || cfg.rows < next) {
           this.grid.updateConfig({ rows: next });
           this.grid.applyGridStyles(this.container);
-          if (this.editable) this.grid.renderGridLines(this.container);
+          if (this.editable) this.showGridLines();
           this.emit('grid:changed', { grid: this.grid.getConfig() });
         }
       },
@@ -91,6 +94,9 @@ export class Pegboard extends EventEmitter {
       // 드래그 종료 후 다음 프레임에 자동 정렬 및 rows 보정 실행
       requestAnimationFrame(() => {
         this.recomputeRowsIfNeeded();
+        // 드래그 종료로 간주: 인터랙션 비활성화, overlay 갱신
+        this.isInteractionActive = false;
+        this.showGridLines();
       });
     });
 
@@ -98,6 +104,8 @@ export class Pegboard extends EventEmitter {
       this.emit('block:resized', { block, oldSize });
       requestAnimationFrame(() => {
         this.recomputeRowsIfNeeded();
+        this.isInteractionActive = false;
+        this.showGridLines();
       });
     });
     this.dragManager.on('block:selected', ({ block }) => {
@@ -105,6 +113,20 @@ export class Pegboard extends EventEmitter {
     });
     this.dragManager.on('selection:changed', ({ ids }) => {
       this.emit('selection:changed', { ids });
+    });
+
+    // 인터랙션 시작/종료에 따라 overlay 토글 (active 모드 전용)
+    this.dragManager.on('interaction:active', () => {
+      if (!this.editable) return;
+      if (this.gridOverlayMode !== 'active') return;
+      this.isInteractionActive = true;
+      this.showGridLines();
+    });
+    this.dragManager.on('interaction:idle', () => {
+      if (!this.editable) return;
+      if (this.gridOverlayMode !== 'active') return;
+      this.isInteractionActive = false;
+      this.showGridLines();
     });
   }
 
@@ -184,6 +206,23 @@ export class Pegboard extends EventEmitter {
   }
 
   private showGridLines(): void {
+    // editable=false면 표시 금지
+    if (!this.editable) return;
+    // 'never' 모드는 표시 안 함
+    if (this.gridOverlayMode === 'never') {
+      this.grid.hideGridLines(this.container);
+      return;
+    }
+    // 'active' 모드는 move/resize 중에만 표시
+    if (this.gridOverlayMode === 'active') {
+      if (this.isInteractionActive) {
+        this.grid.renderGridLines(this.container);
+      } else {
+        this.grid.hideGridLines(this.container);
+      }
+      return;
+    }
+    // 'always'
     this.grid.renderGridLines(this.container);
   }
 
@@ -548,10 +587,7 @@ export class Pegboard extends EventEmitter {
     // autoGrowRows 상태 유지 반영
     (this.grid as any).setUnboundedRows?.(this.autoGrowRows);
     this.grid.applyGridStyles(this.container);
-
-    if (this.editable) {
-      this.showGridLines();
-    }
+    if (this.editable) this.showGridLines();
 
     // grid 변경 후에도 자동 rows 보정
     this.recomputeRowsIfNeeded();
@@ -854,7 +890,7 @@ export class Pegboard extends EventEmitter {
     if (!cfg.rows || cfg.rows !== desired) {
       this.grid.updateConfig({ rows: desired });
       this.grid.applyGridStyles(this.container);
-      if (this.editable) this.grid.renderGridLines(this.container);
+      if (this.editable) this.showGridLines();
       this.emit('grid:changed', { grid: this.grid.getConfig() });
     }
   }
