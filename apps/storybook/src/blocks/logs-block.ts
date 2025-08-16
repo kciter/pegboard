@@ -9,7 +9,7 @@ export class LogsBlock extends BlockExtension<LogsBlockAttributes> {
   readonly type = 'logs';
   readonly defaultAttributes = { title: 'Logs', lines: [] as string[] };
 
-  render(data: BlockData & { attributes: LogsBlockAttributes }, container: HTMLElement) {
+  render(data: BlockData<LogsBlockAttributes>, container: HTMLElement) {
     const root = document.createElement('div');
     root.className = 'metric-card';
 

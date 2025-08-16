@@ -11,7 +11,7 @@ export class ChartLineBlock extends BlockExtension<ChartLineAttrs> {
   readonly type = 'chart-line';
   readonly defaultAttributes = { label: 'Series', values: [] as number[] };
 
-  render(data: BlockData & { attributes: ChartLineAttrs }, container: HTMLElement) {
+  render(data: BlockData<ChartLineAttrs>, container: HTMLElement) {
     // Destroy previous chart if present
     const prev: any = (container as any).__chartInstance;
     if (prev && typeof prev.destroy === 'function') prev.destroy();

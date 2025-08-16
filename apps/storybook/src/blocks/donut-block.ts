@@ -11,7 +11,7 @@ export class DonutBlock extends BlockExtension<DonutBlockAttributes> {
   readonly type = 'donut';
   readonly defaultAttributes = { label: 'Metric', percent: 0 } as const;
 
-  render(data: BlockData & { attributes: DonutBlockAttributes }, container: HTMLElement) {
+  render(data: BlockData<DonutBlockAttributes>, container: HTMLElement) {
     const size = 120;
     const stroke = 14;
     const radius = (size - stroke) / 2;

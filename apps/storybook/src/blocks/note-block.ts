@@ -16,11 +16,7 @@ export class NoteBlock extends BlockExtension<NoteBlockAttributes> {
   } as const;
   readonly allowEditMode = true;
 
-  render(
-    data: BlockData & { attributes: NoteBlockAttributes },
-    container: HTMLElement,
-    isEditorMode: boolean,
-  ) {
+  render(data: BlockData<NoteBlockAttributes>, container: HTMLElement, isEditorMode: boolean) {
     const wrap = document.createElement('div');
     wrap.style.display = 'flex';
     wrap.style.flexDirection = 'column';

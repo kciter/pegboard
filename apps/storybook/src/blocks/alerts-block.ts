@@ -12,7 +12,7 @@ export class AlertsBlock extends BlockExtension<AlertsBlockAttributes> {
     alerts: [] as { level: 'info' | 'warn' | 'error'; message: string }[],
   };
 
-  render(data: BlockData & { attributes: AlertsBlockAttributes }, container: HTMLElement) {
+  render(data: BlockData<AlertsBlockAttributes>, container: HTMLElement) {
     const root = document.createElement('div');
     root.className = 'metric-card';
 

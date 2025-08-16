@@ -10,38 +10,18 @@ export abstract class BlockExtension<Attrs extends Record<string, any>> {
   /**
    * Must render the block content into the container
    */
-  abstract render(
-    data: BlockData & { attributes: Attrs },
-    container: HTMLElement,
-    isEditorMode: boolean,
-  ): void;
+  abstract render(data: BlockData<Attrs>, container: HTMLElement, isEditorMode: boolean): void;
 
   // Lifecycle hooks
-  onCreate?(
-    data: BlockData & { attributes: Attrs },
-    container: HTMLElement,
-    isEditorMode: boolean,
-  ): void;
-  onDestroy?(data: BlockData & { attributes: Attrs }): void;
-  onBeforeRender?(
-    data: BlockData & { attributes: Attrs },
-    container: HTMLElement,
-    isEditorMode: boolean,
-  ): void;
-  onAfterRender?(
-    data: BlockData & { attributes: Attrs },
-    container: HTMLElement,
-    isEditorMode: boolean,
-  ): void;
-  onUpdateAttributes?(
-    data: BlockData & { attributes: Attrs },
-    container: HTMLElement,
-    isEditorMode: boolean,
-  ): void;
+  onCreate?(data: BlockData<Attrs>, container: HTMLElement, isEditorMode: boolean): void;
+  onDestroy?(data: BlockData<Attrs>): void;
+  onBeforeRender?(data: BlockData<Attrs>, container: HTMLElement, isEditorMode: boolean): void;
+  onAfterRender?(data: BlockData<Attrs>, container: HTMLElement, isEditorMode: boolean): void;
+  onUpdateAttributes?(data: BlockData<Attrs>, container: HTMLElement, isEditorMode: boolean): void;
 
   // Edit mode lifecycle (optional)
-  onEnterEditMode?(data: BlockData & { attributes: Attrs }, container: HTMLElement): void;
-  onExitEditMode?(data: BlockData & { attributes: Attrs }, container: HTMLElement): void;
+  onEnterEditMode?(data: BlockData<Attrs>, container: HTMLElement): void;
+  onExitEditMode?(data: BlockData<Attrs>, container: HTMLElement): void;
 }
 
 export type AnyBlockExtension = BlockExtension<any>;

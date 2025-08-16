@@ -11,7 +11,7 @@ export class ChartDoughnutBlock extends BlockExtension<ChartDoughnutAttrs> {
   readonly type = 'chart-doughnut';
   readonly defaultAttributes = { label: 'Usage', percent: 0 } as const;
 
-  render(data: BlockData & { attributes: ChartDoughnutAttrs }, container: HTMLElement) {
+  render(data: BlockData<ChartDoughnutAttrs>, container: HTMLElement) {
     // Clean up previous chart if any
     const prev: any = (container as any).__chartInstance;
     if (prev && typeof prev.destroy === 'function') prev.destroy();

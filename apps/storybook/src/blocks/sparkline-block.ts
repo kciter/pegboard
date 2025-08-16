@@ -10,7 +10,7 @@ export class SparklineBlock extends BlockExtension<SparklineBlockAttributes> {
   readonly type = 'sparkline';
   readonly defaultAttributes = { label: 'Series', values: [] as number[] };
 
-  render(data: BlockData & { attributes: SparklineBlockAttributes }, container: HTMLElement) {
+  render(data: BlockData<SparklineBlockAttributes>, container: HTMLElement) {
     const root = document.createElement('div');
     root.style.width = '100%';
     root.style.height = '100%';

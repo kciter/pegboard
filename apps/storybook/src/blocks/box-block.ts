@@ -10,7 +10,7 @@ export class BoxBlock extends BlockExtension<BoxBlockAttributes> {
   readonly defaultLayout = { x: 1, y: 1, width: 3, height: 2 } as const;
   readonly defaultAttributes = { color: '#888', text: 'Box' } as const;
 
-  render(data: BlockData & { attributes: BoxBlockAttributes }, container: HTMLElement) {
+  render(data: BlockData<BoxBlockAttributes>, container: HTMLElement) {
     const el = document.createElement('div');
 
     el.style.width = '100%';

@@ -26,13 +26,13 @@ export interface GridSizeConstraints {
   maxHeight?: number;
 }
 
-export interface BlockData {
+export interface BlockData<Attrs extends Record<string, any> = Record<string, any>> {
   id: string;
   type: string;
   position: GridPosition;
   constraints?: GridSizeConstraints;
   size: GridSize;
-  attributes: Record<string, any>;
+  attributes: Attrs;
   movable?: boolean;
   resizable?: boolean;
 }

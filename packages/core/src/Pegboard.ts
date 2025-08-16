@@ -298,7 +298,9 @@ export class Pegboard extends EventEmitter {
     return null;
   }
 
-  addBlock(data: PartialKeys<CoreTypes.BlockData, 'id' | 'attributes'>): string {
+  addBlock<Attrs extends Record<string, any>>(
+    data: PartialKeys<CoreTypes.BlockData<Attrs>, 'id' | 'attributes'>,
+  ): string {
     const extension = this.extensions.get(data.type);
     if (!extension) {
       throw new Error(`Extension not found for block type: ${data.type}`);
