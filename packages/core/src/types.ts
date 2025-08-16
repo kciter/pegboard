@@ -44,7 +44,8 @@ export interface GridConfig {
   gap: number;
 }
 
-export type DragReflowStrategy = 'none' | 'shift-down' | 'pack-top' | 'axis-shift';
+export type DragReflowStrategy = 'none' | 'axis-shift';
+export type AutoArrangeStrategy = 'top-left';
 export type GridOverlayMode = 'always' | 'never' | 'active';
 
 export interface PegboardConfig {
@@ -53,6 +54,7 @@ export interface PegboardConfig {
   editable?: boolean;
   allowOverlap?: boolean;
   autoArrange?: boolean;
+  autoArrangeStrategy?: AutoArrangeStrategy;
   arrangeAnimationMs?: number;
   dragReflow?: DragReflowStrategy;
   arrangePreview?: ArrangePreviewStrategy;

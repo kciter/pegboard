@@ -26,6 +26,10 @@ export class Pegboard extends EventEmitter {
   private gridOverlayMode: CoreTypes.GridOverlayMode = 'always';
   private isInteractionActive: boolean = false; // move/resize 중 여부
   private dragReflow: CoreTypes.DragReflowStrategy = 'none';
+  private autoArrange: boolean = false;
+  private autoArrangeStrategy: CoreTypes.AutoArrangeStrategy = 'top-left';
+  private arrangeAnimationMs: number = 160;
+  private isArranging: boolean = false;
 
   constructor(config: CoreTypes.PegboardConfig) {
     super();
@@ -41,6 +45,9 @@ export class Pegboard extends EventEmitter {
     this.minRows = config.grid.rows; // 지정되었으면 최소로 기억
     this.gridOverlayMode = config.gridOverlayMode ?? 'always';
     this.dragReflow = config.dragReflow ?? 'none';
+    this.autoArrange = config.autoArrange ?? false;
+    this.autoArrangeStrategy = config.autoArrangeStrategy ?? 'top-left';
+    this.arrangeAnimationMs = config.arrangeAnimationMs ?? 160;
 
     // autoGrowRows일 때는 검증 단계에서 rows 상한을 넘는 배치도 임시 허용하도록 Grid에 힌트
     (this.grid as any).setUnboundedRows?.(this.autoGrowRows);
@@ -52,6 +59,8 @@ export class Pegboard extends EventEmitter {
 
     // 초기 rows 자동 보정(초기 블록이 있다면)
     this.recomputeRowsIfNeeded();
+    // 초기 자동 배치
+    this.autoArrangeIfEnabled();
   }
 
   private setupContainer(): void {
@@ -96,6 +105,7 @@ export class Pegboard extends EventEmitter {
       this.emit('block:moved', { block, oldPosition });
       // 드래그 종료 후 다음 프레임에 자동 정렬 및 rows 보정 실행
       requestAnimationFrame(() => {
+        this.autoArrangeIfEnabled();
         this.recomputeRowsIfNeeded();
         // 드래그 종료로 간주: 인터랙션 비활성화, overlay 갱신
         this.isInteractionActive = false;
@@ -106,6 +116,7 @@ export class Pegboard extends EventEmitter {
     this.dragManager.on('block:resized', ({ block, oldSize }) => {
       this.emit('block:resized', { block, oldSize });
       requestAnimationFrame(() => {
+        this.autoArrangeIfEnabled();
         this.recomputeRowsIfNeeded();
         this.isInteractionActive = false;
         this.showGridLines();
@@ -391,6 +402,7 @@ export class Pegboard extends EventEmitter {
 
     this.emit('block:added', { block: blockData });
     // rows 자동 재계산
+    this.autoArrangeIfEnabled();
     this.recomputeRowsIfNeeded();
     return blockData.id;
   }
@@ -417,6 +429,7 @@ export class Pegboard extends EventEmitter {
     this.blocks.delete(id);
 
     this.emit('block:removed', { blockId: id });
+    this.autoArrangeIfEnabled();
     this.recomputeRowsIfNeeded();
     return true;
   }
@@ -507,6 +520,7 @@ export class Pegboard extends EventEmitter {
 
     this.emit('block:updated', { block: newData });
     if (updates.position || updates.size) {
+      this.autoArrangeIfEnabled();
       this.recomputeRowsIfNeeded();
     }
     return true;
@@ -660,6 +674,7 @@ export class Pegboard extends EventEmitter {
     (this as any).nextZIndex = Math.max(this.nextZIndex, maxZ + 1);
 
     // import 후 rows 재계산
+    this.autoArrangeIfEnabled();
     this.recomputeRowsIfNeeded();
   }
 
@@ -895,6 +910,143 @@ export class Pegboard extends EventEmitter {
       this.grid.applyGridStyles(this.container);
       if (this.editable) this.showGridLines();
       this.emit('grid:changed', { grid: this.grid.getConfig() });
+    }
+  }
+
+  // Auto arrange
+  private autoArrangeIfEnabled(): void {
+    if (!this.autoArrange) return;
+    if (this.isArranging) return;
+    // 드래그/리사이즈 중에는 실행하지 않음
+    if (this.dragManager && this.dragManager.isDragging()) return;
+    if (this.autoArrangeStrategy === 'top-left') {
+      this.arrangeTopLeft();
+    }
+  }
+
+  private arrangeTopLeft(): void {
+    const cfg = this.grid.getConfig();
+    if (cfg.columns <= 0) return;
+    // 중첩 허용이면 패킹 의미가 약함: 수행하지 않음
+    if (this.allowOverlap) return;
+    const blocks = Array.from(this.blocks.values());
+    if (blocks.length === 0) return;
+
+    this.isArranging = true;
+    try {
+      // 안정적 순서: 현재 위치 (y asc, x asc), 그 다음 id
+      const items = blocks
+        .map((b) => b)
+        .sort((a, b) => {
+          const ap = a.getData().position;
+          const bp = b.getData().position;
+          if (ap.y !== bp.y) return ap.y - bp.y;
+          if (ap.x !== bp.x) return ap.x - bp.x;
+          return a.getData().id.localeCompare(b.getData().id);
+        });
+
+      // Occupancy: placed proposals
+      const proposed = new Map<string, CoreTypes.GridPosition>();
+      let requiredBottom = 0;
+
+      const collides = (
+        pos: CoreTypes.GridPosition,
+        size: CoreTypes.GridSize,
+        excludeId?: string,
+      ) => {
+        // against proposed
+        for (const [id, p] of proposed.entries()) {
+          if (excludeId && id === excludeId) continue;
+          const b = this.blocks.get(id)!;
+          const s = b.getData().size;
+          const endX = pos.x + size.width - 1;
+          const endY = pos.y + size.height - 1;
+          const oEndX = p.x + s.width - 1;
+          const oEndY = p.y + s.height - 1;
+          const h = !(pos.x > oEndX || endX < p.x);
+          const v = !(pos.y > oEndY || endY < p.y);
+          if (h && v) return true;
+        }
+        return false;
+      };
+
+      const isWithin = (pos: CoreTypes.GridPosition, size: CoreTypes.GridSize) => {
+        // columns cap은 항상 적용, rows cap은 autoGrowRows일 때는 확장 허용
+        const withinColumns = pos.x >= 1 && pos.x + size.width - 1 <= cfg.columns;
+        if (!withinColumns) return false;
+        if (this.autoGrowRows) return pos.y >= 1; // 하한만
+        const rows = cfg.rows || Infinity;
+        return pos.y >= 1 && pos.y + size.height - 1 <= rows;
+      };
+
+      const findSpot = (size: CoreTypes.GridSize): CoreTypes.GridPosition => {
+        const maxRows = this.autoGrowRows ? Math.max(cfg.rows || 0, 1000) : cfg.rows || 1000;
+        for (let y = 1; y <= maxRows; y++) {
+          for (let x = 1; x <= cfg.columns - size.width + 1; x++) {
+            const p = { x, y, zIndex: 1 } as CoreTypes.GridPosition;
+            if (!isWithin(p, size)) continue;
+            if (!collides(p, size)) return p;
+          }
+        }
+        // fallback: keep at 1,1
+        return { x: 1, y: 1, zIndex: 1 };
+      };
+
+      for (const b of items) {
+        const d = b.getData();
+        const spot = findSpot(d.size);
+        proposed.set(d.id, { x: spot.x, y: spot.y, zIndex: d.position.zIndex });
+        requiredBottom = Math.max(requiredBottom, spot.y + d.size.height - 1);
+      }
+
+      // autoGrowRows: 필요한 경우 rows 확장
+      if (this.autoGrowRows && requiredBottom > (cfg.rows || 0)) {
+        this.grid.updateConfig({ rows: requiredBottom });
+        this.grid.applyGridStyles(this.container);
+        if (this.editable) this.showGridLines();
+        this.emit('grid:changed', { grid: this.grid.getConfig() });
+      }
+
+      // FLIP 애니메이션으로 커밋
+      const firstRects = new Map<string, DOMRect>();
+      for (const b of items) {
+        firstRects.set(b.getData().id, b.getElement().getBoundingClientRect());
+      }
+      // set positions
+      for (const b of items) {
+        const id = b.getData().id;
+        const to = proposed.get(id)!;
+        const from = b.getData().position;
+        if (from.x === to.x && from.y === to.y) continue; // unchanged
+        b.setPosition(to);
+      }
+      // last rects and invert
+      const lastRects = new Map<string, DOMRect>();
+      for (const b of items) {
+        lastRects.set(b.getData().id, b.getElement().getBoundingClientRect());
+      }
+      // apply transforms
+      for (const b of items) {
+        const id = b.getData().id;
+        const fromRect = firstRects.get(id)!;
+        const toRect = lastRects.get(id)!;
+        const el = b.getElement();
+        el.style.transition = 'none';
+        el.style.transform = `translate(${fromRect.left - toRect.left}px, ${fromRect.top - toRect.top}px)`;
+      }
+      // play
+      // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+      this.container.offsetHeight;
+      for (const b of items) {
+        const el = b.getElement();
+        el.style.transition = `transform ${this.arrangeAnimationMs}ms ease`;
+        el.style.transform = '';
+        setTimeout(() => {
+          el.style.transition = '';
+        }, this.arrangeAnimationMs + 80);
+      }
+    } finally {
+      this.isArranging = false;
     }
   }
 }
