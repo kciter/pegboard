@@ -32,9 +32,6 @@ export class DragManager extends EventEmitter {
   private groupMoveStartPositions: Map<string, GridPosition> = new Map();
   private groupStartPixelPos: Map<string, { left: number; top: number }> = new Map();
   private pendingGroupMovePositions: Map<string, GridPosition> | null = null;
-  // 실시간 재배치(끼워넣기) 프리뷰용
-  private pendingReflowPositions: Map<string, GridPosition> | null = null;
-  private reflowPreviewIds: Set<string> = new Set();
 
   constructor(
     private container: HTMLElement,
@@ -43,7 +40,6 @@ export class DragManager extends EventEmitter {
     private getAllBlocks: () => Block[],
     private getAllowOverlap?: () => boolean,
     private getPlugin?: (type: string) => AnyBlockExtension | undefined,
-    private getDragReflow?: () => DragReflowStrategy,
     private getLassoEnabled?: () => boolean,
     private getKeyboardMove?: () => boolean,
     private getKeyboardDelete?: () => boolean,
@@ -511,7 +507,6 @@ export class DragManager extends EventEmitter {
     }
 
     const allowOverlap = this.getAllowOverlap ? this.getAllowOverlap() : false;
-    const dragReflow = this.getDragReflow ? this.getDragReflow() : 'none';
 
     if (this.selection.size > 1) {
       // 그룹 유효성 검사: anchor 기준 delta 로 각 블록 적용
@@ -555,25 +550,19 @@ export class DragManager extends EventEmitter {
       this.pendingGroupMovePositions = groupValid ? nextPositions : null;
       // 힌트는 anchor 기준으로만 표시하되, groupValid 로 색 결정
       this.updateHintOverlay(candidate, this.selectedBlock.getData().size, groupValid);
-      // 그룹 이동에서는 재배치 프리뷰 미적용
-      this.applyReflowPreview(null);
-      this.pendingReflowPositions = null;
     } else {
       // 단일 이동: 충돌 기반 검증 또는 재배치 프리뷰
       const blockData = this.selectedBlock.getData();
       const allBlocks = this.getAllBlocks();
       const othersData = allBlocks.map((b) => b.getData()).filter((d) => d.id !== blockData.id);
 
-      if (allowOverlap || dragReflow === 'none') {
+      if (allowOverlap) {
         const collides =
           !allowOverlap &&
           this.grid.checkGridCollision(candidate, blockData.size, blockData.id, othersData);
         const valid = this.grid.isValidGridPosition(candidate, blockData.size) && !collides;
         this.pendingMoveGridPosition = valid ? candidate : null;
         this.updateHintOverlay(candidate, blockData.size, valid);
-        // 프리뷰 해제
-        this.applyReflowPreview(null);
-        this.pendingReflowPositions = null;
       } else {
         // 재배치 전략 적용(shift-down)
         const immovable = othersData.filter((d) => d.movable === false);
@@ -592,145 +581,11 @@ export class DragManager extends EventEmitter {
         if (collideImmovable || !within) {
           this.pendingMoveGridPosition = null;
           this.updateHintOverlay(candidate, blockData.size, false);
-          this.applyReflowPreview(null);
-          this.pendingReflowPositions = null;
         } else {
-          const preview = this.computeReflowPreview(
-            blockData.id,
-            candidate,
-            blockData.size,
-            dragReflow,
-            othersData,
-          );
-          if (!preview) {
-            this.pendingMoveGridPosition = null;
-            this.updateHintOverlay(candidate, blockData.size, false);
-            this.applyReflowPreview(null);
-            this.pendingReflowPositions = null;
-          } else {
-            this.pendingMoveGridPosition = candidate;
-            this.pendingReflowPositions = preview;
-            this.updateHintOverlay(candidate, blockData.size, true);
-            this.applyReflowPreview(preview);
-          }
+          this.pendingMoveGridPosition = candidate;
+          this.updateHintOverlay(candidate, blockData.size, true);
         }
       }
-    }
-  }
-
-  private computeReflowPreview(
-    anchorId: string,
-    anchorPos: GridPosition,
-    anchorSize: GridSize,
-    strategy: DragReflowStrategy,
-    others: { id: string; position: GridPosition; size: GridSize; movable?: boolean }[],
-  ): Map<string, GridPosition> | null {
-    if (strategy === 'none') return null;
-
-    const config = this.grid.getConfig();
-    const allowDeep = this.getAutoGrowRows ? !!this.getAutoGrowRows() : false;
-    const maxRows = allowDeep
-      ? 1000
-      : config.rows && config.rows > 0
-        ? (config.rows as number)
-        : 1000;
-
-    // 배치된 블록 목록(충돌 검사용)
-    const placed: { id: string; position: GridPosition; size: GridSize }[] = [
-      { id: anchorId, position: anchorPos, size: anchorSize },
-    ];
-
-    // immovable이 anchor와 충돌하면 프리뷰 불가
-    const immovable = others.filter((d) => d.movable === false);
-    const immovableBlocks = immovable.map((d) => ({
-      id: d.id,
-      position: d.position,
-      size: d.size,
-    }));
-    if (this.grid.checkGridCollision(anchorPos, anchorSize, anchorId, immovableBlocks)) {
-      return null;
-    }
-
-    const sorted = others.slice().sort((a, b) => {
-      if (a.position.y !== b.position.y) return a.position.y - b.position.y;
-      if (a.position.x !== b.position.x) return a.position.x - b.position.x;
-      return 0;
-    });
-
-    const result = new Map<string, GridPosition>();
-
-    for (const d of sorted) {
-      if (d.movable === false) {
-        // 그대로 유지하되 placed에 포함시켜 이후 충돌 검사에 반영
-        placed.push({ id: d.id, position: d.position, size: d.size });
-        continue;
-      }
-      // X 고정, 현재 Y 이상에서 가능한 위치 탐색(shift-down)
-      let y = Math.max(1, d.position.y);
-      let chosen: GridPosition | null = null;
-      while (y <= maxRows) {
-        const pos: GridPosition = { x: d.position.x, y, zIndex: d.position.zIndex };
-        const valid = this.grid.isValidGridPosition(pos, d.size);
-        const collide = this.grid.checkGridCollision(pos, d.size, d.id, placed);
-        if (valid && !collide) {
-          chosen = pos;
-          break;
-        }
-        y++;
-      }
-      if (!chosen) return null; // 배치 불가
-      placed.push({ id: d.id, position: chosen, size: d.size });
-      if (chosen.x !== d.position.x || chosen.y !== d.position.y) {
-        result.set(d.id, chosen);
-      }
-    }
-
-    return result;
-  }
-
-  private applyReflowPreview(map: Map<string, GridPosition> | null) {
-    // 이전 프리뷰 제거
-    const contRect = this.container.getBoundingClientRect();
-    const clearIds = new Set(this.reflowPreviewIds);
-    if (!map || map.size === 0) {
-      for (const id of clearIds) {
-        const b = this.getBlock(id);
-        if (!b) continue;
-        const el = b.getElement();
-        el.style.transform = '';
-        el.classList.remove('pegboard-block-dragging');
-      }
-      this.reflowPreviewIds.clear();
-      return;
-    }
-
-    // 유지/갱신
-    for (const [id, pos] of map.entries()) {
-      clearIds.delete(id);
-      const b = this.getBlock(id);
-      if (!b) continue;
-      const el = b.getElement();
-      const currentRect = el.getBoundingClientRect();
-      const currentLeft = currentRect.left - contRect.left;
-      const currentTop = currentRect.top - contRect.top;
-      const targetPx = this.grid.getPixelsFromGridPosition(pos, this.container);
-      const targetLeft = targetPx.x - contRect.left;
-      const targetTop = targetPx.y - contRect.top;
-      const dx = targetLeft - currentLeft;
-      const dy = targetTop - currentTop;
-      el.style.transform = `translate(${dx}px, ${dy}px)`;
-      el.classList.add('pegboard-block-dragging');
-      this.reflowPreviewIds.add(id);
-    }
-
-    // 더 이상 미사용 프리뷰 정리
-    for (const id of clearIds) {
-      const b = this.getBlock(id);
-      if (!b) continue;
-      const el = b.getElement();
-      el.style.transform = '';
-      el.classList.remove('pegboard-block-dragging');
-      this.reflowPreviewIds.delete(id);
     }
   }
 
@@ -759,13 +614,6 @@ export class DragManager extends EventEmitter {
           this.clearHintOverlay();
         } else {
           if (this.pendingMoveGridPosition) {
-            if (this.pendingReflowPositions) {
-              for (const [id, pos] of this.pendingReflowPositions.entries()) {
-                const b = this.getBlock(id);
-                if (!b) continue;
-                b.setPosition(pos);
-              }
-            }
             this.selectedBlock.setPosition(this.pendingMoveGridPosition);
             this.emit('block:moved', {
               block: this.selectedBlock.getData(),
@@ -773,8 +621,6 @@ export class DragManager extends EventEmitter {
             });
           }
           this.pendingMoveGridPosition = null;
-          this.pendingReflowPositions = null;
-          this.applyReflowPreview(null);
           this.clearHintOverlay();
         }
       } else if (this.dragState.dragType === 'resize') {
@@ -811,7 +657,6 @@ export class DragManager extends EventEmitter {
     this.pointerDownOffset = null;
     this.groupMoveStartPositions.clear();
     this.groupStartPixelPos.clear();
-    this.applyReflowPreview(null);
   }
 
   private handleMove(event: MouseEvent): void {

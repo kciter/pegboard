@@ -15,11 +15,6 @@ export class Pegboard extends EventEmitter {
   private editable: boolean = true;
   private nextZIndex: number = 1;
   private allowOverlap: boolean;
-  private autoArrange: boolean;
-  private arrangeAnimationMs: number;
-  private arrangePreview: CoreTypes.ArrangePreviewStrategy = 'none';
-  private livePreviewPositions: Map<string, CoreTypes.GridPosition> | null = null;
-  private dragReflow: CoreTypes.DragReflowStrategy = 'none';
   private lassoSelection: boolean = false;
   private keyboardMove: boolean = true;
   private keyboardDelete: boolean = false;
@@ -33,10 +28,6 @@ export class Pegboard extends EventEmitter {
     this.grid = new Grid(config.grid);
     // this.editable = config.editable ?? true;
     this.allowOverlap = config.allowOverlap ?? false;
-    this.autoArrange = config.autoArrange ?? false;
-    this.arrangeAnimationMs = config.arrangeAnimationMs ?? 220;
-    this.arrangePreview = config.arrangePreview ?? 'none';
-    this.dragReflow = config.dragReflow ?? 'none';
     this.lassoSelection = config.lassoSelection ?? false;
     this.keyboardMove = config.keyboardMove ?? false;
     this.keyboardDelete = config.keyboardDelete ?? false;
@@ -72,7 +63,6 @@ export class Pegboard extends EventEmitter {
       () => Array.from(this.blocks.values()),
       () => this.allowOverlap,
       (type: string) => this.plugins.get(type),
-      () => this.dragReflow,
       () => this.lassoSelection,
       () => this.keyboardMove,
       () => this.keyboardDelete,
@@ -94,7 +84,6 @@ export class Pegboard extends EventEmitter {
       this.emit('block:moved', { block, oldPosition });
       // 드래그 종료 후 다음 프레임에 자동 정렬 및 rows 보정 실행
       requestAnimationFrame(() => {
-        this.autoArrangeIfNeeded();
         this.recomputeRowsIfNeeded();
       });
     });
@@ -103,7 +92,6 @@ export class Pegboard extends EventEmitter {
       this.emit('block:resized', { block, oldSize });
       requestAnimationFrame(() => {
         this.recomputeRowsIfNeeded();
-        this.autoArrangeIfNeeded();
       });
     });
     this.dragManager.on('block:selected', ({ block }) => {
@@ -112,81 +100,6 @@ export class Pegboard extends EventEmitter {
     this.dragManager.on('selection:changed', ({ ids }) => {
       this.emit('selection:changed', { ids });
     });
-  }
-
-  private autoArrangeIfNeeded(): void {
-    if (!this.autoArrange) return;
-    // 드래그 중에는 자동 정렬 애니메이션을 적용하지 않음
-    if ((this as any).dragManager?.isDragging?.()) return;
-    const blocks = Array.from(this.blocks.values());
-    if (blocks.length <= 1) return;
-
-    // 현재 위치 기준 정렬(위->아래, 좌->우)
-    const ordered = blocks.slice().sort((a, b) => {
-      const ad = a.getData();
-      const bd = b.getData();
-      if (ad.position.y !== bd.position.y) {
-        return ad.position.y - bd.position.y;
-      }
-      if (ad.position.x !== bd.position.x) {
-        return ad.position.x - bd.position.x;
-      }
-      return 0;
-    });
-
-    // 순서대로 격자에 빈칸 없이 채우기
-    const placed: {
-      id: string;
-      position: CoreTypes.GridPosition;
-      size: CoreTypes.GridSize;
-    }[] = [];
-    const targetPositions = new Map<string, CoreTypes.GridPosition>();
-    for (const b of ordered) {
-      const d = b.getData();
-      const pos = this.grid.findAvailablePosition(d.size, placed);
-      const finalPos: CoreTypes.GridPosition = {
-        x: pos.x,
-        y: pos.y,
-        zIndex: d.position.zIndex,
-      };
-      targetPositions.set(d.id, finalPos);
-      placed.push({ id: d.id, position: finalPos, size: d.size });
-    }
-
-    // 애니메이션 적용(FLIP)
-    const duration = this.arrangeAnimationMs;
-    ordered.forEach((b) => {
-      const d = b.getData();
-      const to = targetPositions.get(d.id)!;
-      if (to.x === d.position.x && to.y === d.position.y) return;
-      this.flipMove(b, to, duration);
-    });
-
-    // 자동 정렬 후 rows 재계산
-    this.recomputeRowsIfNeeded();
-  }
-
-  private flipMove(block: Block, to: CoreTypes.GridPosition, duration: number) {
-    const el = block.getElement();
-    const first = el.getBoundingClientRect();
-    // 최종 상태 적용
-    block.setPosition(to);
-    const last = el.getBoundingClientRect();
-    const dx = first.left - last.left;
-    const dy = first.top - last.top;
-    // 역변환 적용
-    el.style.transform = `translate(${dx}px, ${dy}px)`;
-    // 리플로우 강제
-    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
-    (el as any).offsetWidth;
-    el.style.transition = `transform ${duration}ms ease`;
-    el.style.transform = 'translate(0px, 0px)';
-    const cleanup = () => {
-      el.style.transition = '';
-      el.style.transform = '';
-      el.removeEventListener('transitionend', cleanup);
-    };
-    el.addEventListener('transitionend', cleanup);
   }
 
   private showGridLines(): void {
@@ -203,23 +116,6 @@ export class Pegboard extends EventEmitter {
 
   unregisterPlugin(type: string): void {
     this.plugins.delete(type);
-  }
-
-  setAutoArrange(allow: boolean) {
-    const prev = this.autoArrange;
-    this.autoArrange = !!allow;
-    if (!prev && this.autoArrange) {
-      // 켜는 즉시 현재 블럭들 정렬
-      this.autoArrangeIfNeeded();
-    }
-  }
-
-  getAutoArrange() {
-    return this.autoArrange;
-  }
-
-  setArrangeAnimationMs(ms: number) {
-    this.arrangeAnimationMs = Math.max(0, ms | 0);
   }
 
   // 요청 위치 주변에서 가장 가까운 유효한 위치 탐색(없으면 null)
@@ -380,8 +276,6 @@ export class Pegboard extends EventEmitter {
     }
 
     this.emit('block:added', { block: blockData });
-    // 자동 정렬 모드에서는 블록 추가 시에도 패킹
-    this.autoArrangeIfNeeded();
     // rows 자동 재계산
     this.recomputeRowsIfNeeded();
     return blockData.id;
@@ -404,7 +298,6 @@ export class Pegboard extends EventEmitter {
     this.blocks.delete(id);
 
     this.emit('block:removed', { blockId: id });
-    this.autoArrangeIfNeeded();
     this.recomputeRowsIfNeeded();
     return true;
   }
@@ -483,7 +376,6 @@ export class Pegboard extends EventEmitter {
 
     this.emit('block:updated', { block: newData });
     if (updates.position || updates.size) {
-      this.autoArrangeIfNeeded();
       this.recomputeRowsIfNeeded();
     }
     return true;
@@ -770,7 +662,6 @@ export class Pegboard extends EventEmitter {
       !this.grid.checkGridCollision(gridPosition, blockData.size, id, existingBlocks);
     if (noCollision && this.grid.isValidGridPosition(gridPosition, blockData.size)) {
       block.setPosition(gridPosition);
-      this.autoArrangeIfNeeded();
       return true;
     }
     return false;
@@ -800,7 +691,6 @@ export class Pegboard extends EventEmitter {
       !this.grid.checkGridCollision(blockData.position, candidateSize, id, existingBlocks);
     if (noCollision && this.grid.isValidGridPosition(blockData.position, candidateSize)) {
       block.setSize(candidateSize);
-      this.autoArrangeIfNeeded();
       return true;
     }
     return false;
@@ -814,14 +704,6 @@ export class Pegboard extends EventEmitter {
 
   getAllowOverlap() {
     return this.allowOverlap;
-  }
-
-  setDragReflow(strategy: CoreTypes.DragReflowStrategy) {
-    this.dragReflow = strategy;
-  }
-
-  getDragReflow() {
-    return this.dragReflow;
   }
 
   setLassoSelection(enabled: boolean) {
