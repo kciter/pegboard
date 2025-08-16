@@ -44,7 +44,7 @@ export interface GridConfig {
   gap: number;
 }
 
-export type DragReflowStrategy = 'none' | 'shift-down' | 'pack-top';
+export type DragReflowStrategy = 'none' | 'shift-down' | 'pack-top' | 'axis-shift';
 export type GridOverlayMode = 'always' | 'never' | 'active';
 
 export interface PegboardConfig {
@@ -92,6 +92,13 @@ export interface EventMap {
   'block:edit:exited': { block: BlockData };
   'interaction:active': { mode: 'move' | 'resize' };
   'interaction:idle': {};
+  // optional: emitted when a drag reflow is applied or fails
+  'reflow:applied'?: {
+    strategy: DragReflowStrategy;
+    moved: Array<{ id: string; from: GridPosition; to: GridPosition }>;
+    anchorId: string;
+  };
+  'reflow:failed'?: { strategy: DragReflowStrategy; reason?: string; anchorId: string };
 }
 
 export interface SerializedPegboardData {

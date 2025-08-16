@@ -25,6 +25,7 @@ export class Pegboard extends EventEmitter {
   private editingBlockId: string | null = null;
   private gridOverlayMode: CoreTypes.GridOverlayMode = 'always';
   private isInteractionActive: boolean = false; // move/resize 중 여부
+  private dragReflow: CoreTypes.DragReflowStrategy = 'none';
 
   constructor(config: CoreTypes.PegboardConfig) {
     super();
@@ -39,6 +40,7 @@ export class Pegboard extends EventEmitter {
     this.autoGrowRows = config.autoGrowRows ?? false;
     this.minRows = config.grid.rows; // 지정되었으면 최소로 기억
     this.gridOverlayMode = config.gridOverlayMode ?? 'always';
+    this.dragReflow = config.dragReflow ?? 'none';
 
     // autoGrowRows일 때는 검증 단계에서 rows 상한을 넘는 배치도 임시 허용하도록 Grid에 힌트
     (this.grid as any).setUnboundedRows?.(this.autoGrowRows);
@@ -87,6 +89,7 @@ export class Pegboard extends EventEmitter {
           this.emit('grid:changed', { grid: this.grid.getConfig() });
         }
       },
+      () => this.dragReflow,
     );
 
     this.dragManager.on('block:moved', ({ block, oldPosition }) => {

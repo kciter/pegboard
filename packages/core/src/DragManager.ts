@@ -33,6 +33,8 @@ export class DragManager extends EventEmitter {
   private groupStartPixelPos: Map<string, { left: number; top: number }> = new Map();
   private pendingGroupMovePositions: Map<string, GridPosition> | null = null;
   private interactionNotified: boolean = false;
+  private pendingReflowPositions: Map<string, GridPosition> | null = null;
+  private triedReflow: boolean = false;
 
   constructor(
     private container: HTMLElement,
@@ -46,6 +48,7 @@ export class DragManager extends EventEmitter {
     private onDeleteSelected?: (ids: string[]) => void,
     private getAutoGrowRows?: () => boolean,
     private requestGrowRows?: (rows: number) => void,
+    private getDragReflow?: () => DragReflowStrategy,
   ) {
     super();
     this.setupEventListeners();
@@ -569,6 +572,8 @@ export class DragManager extends EventEmitter {
           this.grid.checkGridCollision(candidate, blockData.size, blockData.id, othersData);
         const valid = this.grid.isValidGridPosition(candidate, blockData.size) && !collides;
         this.pendingMoveGridPosition = valid ? candidate : null;
+        this.pendingReflowPositions = null;
+        this.triedReflow = false;
         this.updateHintOverlay(candidate, blockData.size, valid);
       } else {
         // 겹침 금지: 모든 다른 블록과 충돌 금지
@@ -579,12 +584,36 @@ export class DragManager extends EventEmitter {
           othersData,
         );
         const within = this.grid.isValidGridPosition(candidate, blockData.size);
-        if (collideAny || !within) {
-          this.pendingMoveGridPosition = null;
-          this.updateHintOverlay(candidate, blockData.size, false);
+        const reflow = this.getDragReflow ? this.getDragReflow() : 'none';
+        this.triedReflow = false;
+        if ((!collideAny && within) || reflow !== 'axis-shift') {
+          // 기본 동작
+          const valid = within && !collideAny;
+          this.pendingMoveGridPosition = valid ? candidate : null;
+          this.pendingReflowPositions = null;
+          this.updateHintOverlay(candidate, blockData.size, valid);
         } else {
-          this.pendingMoveGridPosition = candidate;
-          this.updateHintOverlay(candidate, blockData.size, true);
+          // axis-shift 시도
+          const shiftDir = this.getPrimaryShiftDirection(candidate, this.startPosition!);
+          const plan = this.computeAxisShiftPlan(blockData.id, candidate, blockData.size, shiftDir);
+          if (plan && plan.valid && plan.map) {
+            this.pendingMoveGridPosition = null; // 단일 이동 대신 reflow 계획
+            this.pendingReflowPositions = plan.map;
+            // autoGrowRows: 필요한 경우 rows 증가
+            if (
+              autoGrow &&
+              plan.requiredBottom &&
+              plan.requiredBottom > (this.grid.getConfig().rows || 0)
+            ) {
+              this.requestGrowRows && this.requestGrowRows(plan.requiredBottom);
+            }
+            this.updateHintOverlay(candidate, blockData.size, true);
+          } else {
+            this.pendingMoveGridPosition = null;
+            this.pendingReflowPositions = null;
+            this.triedReflow = true;
+            this.updateHintOverlay(candidate, blockData.size, false);
+          }
         }
       }
     }
@@ -614,14 +643,43 @@ export class DragManager extends EventEmitter {
           this.pendingGroupMovePositions = null;
           this.clearHintOverlay();
         } else {
-          if (this.pendingMoveGridPosition) {
+          // 우선 reflow 커밋
+          if (this.pendingReflowPositions) {
+            const movedSummary: Array<{ id: string; from: GridPosition; to: GridPosition }> = [];
+            for (const [id, pos] of this.pendingReflowPositions.entries()) {
+              const b = this.getBlock(id);
+              if (!b) continue;
+              const from = { ...b.getData().position };
+              b.setPosition(pos);
+              movedSummary.push({ id, from, to: { ...pos } });
+            }
+            // anchor moved 이벤트 유지
+            this.emit('block:moved', {
+              block: this.selectedBlock.getData(),
+              oldPosition,
+            });
+            // reflow summary 이벤트(옵셔널)
+            this.emit('reflow:applied' as any, {
+              strategy: (this.getDragReflow ? this.getDragReflow() : 'none') as DragReflowStrategy,
+              moved: movedSummary,
+              anchorId: this.selectedBlock.getData().id,
+            });
+          } else if (this.pendingMoveGridPosition) {
             this.selectedBlock.setPosition(this.pendingMoveGridPosition);
             this.emit('block:moved', {
               block: this.selectedBlock.getData(),
               oldPosition,
             });
+          } else if (this.triedReflow) {
+            this.emit('reflow:failed' as any, {
+              strategy: (this.getDragReflow ? this.getDragReflow() : 'none') as DragReflowStrategy,
+              reason: 'no-valid-plan',
+              anchorId: this.selectedBlock.getData().id,
+            });
           }
           this.pendingMoveGridPosition = null;
+          this.pendingReflowPositions = null;
+          this.triedReflow = false;
           this.clearHintOverlay();
         }
       } else if (this.dragState.dragType === 'resize') {
@@ -1029,6 +1087,227 @@ export class DragManager extends EventEmitter {
       el.style.transform = '';
       el.classList.remove('pegboard-block-dragging');
     }
+  }
+
+  private getPrimaryShiftDirection(
+    candidate: GridPosition,
+    start: GridPosition,
+  ): 'left' | 'right' | 'up' | 'down' {
+    const dx = candidate.x - start.x;
+    const dy = candidate.y - start.y;
+    if (Math.abs(dx) >= Math.abs(dy)) {
+      return dx >= 0 ? 'right' : 'left';
+    }
+    return dy >= 0 ? 'down' : 'up';
+  }
+
+  private computeAxisShiftPlan(
+    anchorId: string,
+    anchorPos: GridPosition,
+    anchorSize: GridSize,
+    dir: 'left' | 'right' | 'up' | 'down',
+  ): { valid: boolean; map?: Map<string, GridPosition>; requiredBottom?: number } | null {
+    const cfg = this.grid.getConfig();
+    const all = this.getAllBlocks().map((b) => b.getData());
+    const byId = new Map(all.map((d) => [d.id, d] as const));
+
+    const map = new Map<string, GridPosition>();
+    const queue: Array<{ id: string; pos: GridPosition; size: GridSize }> = [];
+    const visited = new Set<string>();
+
+    // Seed with anchor
+    map.set(anchorId, { x: anchorPos.x, y: anchorPos.y, zIndex: anchorPos.zIndex });
+    queue.push({ id: anchorId, pos: anchorPos, size: anchorSize });
+    visited.add(anchorId);
+
+    const maxIterations = Math.max(100, all.length * 4);
+    let iterations = 0;
+    let requiredBottom = 0;
+
+    const getCurrentPos = (id: string): { pos: GridPosition; size: GridSize } => {
+      const proposed = map.get(id);
+      const d = byId.get(id)!;
+      const pos = proposed ? proposed : d.position;
+      return { pos, size: d.size };
+    };
+
+    const collidesWith = (id: string, pos: GridPosition, size: GridSize, otherId: string) => {
+      const other = getCurrentPos(otherId);
+      const newEndX = pos.x + size.width - 1;
+      const newEndY = pos.y + size.height - 1;
+      const existingEndX = other.pos.x + other.size.width - 1;
+      const existingEndY = other.pos.y + other.size.height - 1;
+      const horizontalOverlap = !(pos.x > existingEndX || newEndX < other.pos.x);
+      const verticalOverlap = !(pos.y > existingEndY || newEndY < other.pos.y);
+      return horizontalOverlap && verticalOverlap;
+    };
+
+    const isWithin = (pos: GridPosition, size: GridSize) =>
+      this.grid.isValidGridPosition(pos, size);
+
+    // helper: check if a block can be placed at candidate considering proposed map
+    const canPlaceAt = (
+      id: string,
+      candidate: GridPosition,
+      size: GridSize,
+    ): { ok: boolean; requiredBottom?: number } => {
+      const hasRowCap = !!cfg.rows && cfg.rows > 0;
+      const autoGrow = this.getAutoGrowRows ? !!this.getAutoGrowRows() : false;
+      // bounds: allow downward overflow if moving down and autoGrow
+      if (!isWithin(candidate, size)) {
+        if (dir === 'down' && (!hasRowCap || autoGrow)) {
+          const endY = candidate.y + size.height - 1;
+          const rows = cfg.rows || 0;
+          if (endY > rows) return { ok: true, requiredBottom: endY };
+        }
+        return { ok: false };
+      }
+      for (const other of all) {
+        if (other.id === id) continue;
+        if (collidesWith(id, candidate, size, other.id)) return { ok: false };
+      }
+      return { ok: true };
+    };
+
+    // helper: find nearest available gap for the block around its current position
+    const tryFindNearestGapFor = (
+      id: string,
+      base: GridPosition,
+      size: GridSize,
+      maxRadius = Math.max(cfg.columns, (cfg.rows || 50)) * 2,
+    ): { pos: GridPosition; requiredBottom?: number } | null => {
+      const first = canPlaceAt(id, base, size);
+      if (first.ok) return { pos: base, requiredBottom: first.requiredBottom };
+      for (let r = 1; r <= maxRadius; r++) {
+        for (let dx = -r; dx <= r; dx++) {
+          const top: GridPosition = { x: base.x + dx, y: base.y - r, zIndex: base.zIndex };
+          const t = canPlaceAt(id, top, size);
+          if (t.ok) return { pos: top, requiredBottom: t.requiredBottom };
+          const bottom: GridPosition = { x: base.x + dx, y: base.y + r, zIndex: base.zIndex };
+          const b = canPlaceAt(id, bottom, size);
+          if (b.ok) return { pos: bottom, requiredBottom: b.requiredBottom };
+        }
+        for (let dy = -r + 1; dy <= r - 1; dy++) {
+          const left: GridPosition = { x: base.x - r, y: base.y + dy, zIndex: base.zIndex };
+          const l = canPlaceAt(id, left, size);
+          if (l.ok) return { pos: left, requiredBottom: l.requiredBottom };
+          const right: GridPosition = { x: base.x + r, y: base.y + dy, zIndex: base.zIndex };
+          const rr = canPlaceAt(id, right, size);
+          if (rr.ok) return { pos: right, requiredBottom: rr.requiredBottom };
+        }
+      }
+      return null;
+    };
+
+    while (queue.length && iterations++ < maxIterations) {
+      const { id, pos, size } = queue.shift()!;
+      requiredBottom = Math.max(requiredBottom, pos.y + size.height - 1);
+      // check collisions against all others
+      for (const other of all) {
+        if (other.id === id) continue;
+        // skip if already positioned to a non-colliding place
+        if (!collidesWith(id, pos, size, other.id)) continue;
+        // immovable block makes the plan invalid
+        const otherData = byId.get(other.id)!;
+        if (otherData.movable === false) return { valid: false };
+        // 1) try parking into nearest gap first
+        const parked = tryFindNearestGapFor(other.id, other.position, other.size);
+        if (parked) {
+          if (parked.requiredBottom)
+            requiredBottom = Math.max(requiredBottom, parked.requiredBottom);
+          const target = {
+            x: parked.pos.x,
+            y: parked.pos.y,
+            zIndex: other.position.zIndex,
+          } as GridPosition;
+          map.set(other.id, target);
+          if (!visited.has(other.id)) {
+            queue.push({ id: other.id, pos: target, size: other.size });
+            visited.add(other.id);
+          } else {
+            const existing = map.get(other.id)!;
+            if (existing.x !== target.x || existing.y !== target.y) map.set(other.id, target);
+          }
+          continue;
+        }
+        // 2) fallback: compute shifted position for other along dir relative to current item
+        let next: GridPosition;
+        if (dir === 'right') {
+          const endX = pos.x + size.width - 1;
+          next = { x: endX + 1, y: other.position.y, zIndex: other.position.zIndex };
+        } else if (dir === 'left') {
+          const startX = pos.x;
+          next = {
+            x: startX - other.size.width,
+            y: other.position.y,
+            zIndex: other.position.zIndex,
+          };
+        } else if (dir === 'down') {
+          const endY = pos.y + size.height - 1;
+          next = {
+            y: endY + 1,
+            x: other.position.x,
+            zIndex: other.position.zIndex,
+          } as GridPosition;
+        } else {
+          const startY = pos.y;
+          next = {
+            y: startY - other.size.height,
+            x: other.position.x,
+            zIndex: other.position.zIndex,
+          } as GridPosition;
+        }
+        // bounds/collision check for fallback
+        const place = canPlaceAt(other.id, next, other.size);
+        if (!place.ok) return { valid: false };
+        if (place.requiredBottom)
+          requiredBottom = Math.max(requiredBottom, place.requiredBottom);
+        if (!visited.has(other.id)) {
+          map.set(other.id, next);
+          queue.push({ id: other.id, pos: next, size: other.size });
+          visited.add(other.id);
+        } else {
+          // already proposed; if new proposal differs and still collides, skip to avoid cycles
+          const existing = map.get(other.id)!;
+          if (existing.x !== next.x || existing.y !== next.y) {
+            // prefer the farthest shift in the movement direction
+            if (dir === 'right' && next.x > existing.x) map.set(other.id, next);
+            if (dir === 'left' && next.x < existing.x) map.set(other.id, next);
+            if (dir === 'down' && next.y > existing.y) map.set(other.id, next);
+            if (dir === 'up' && next.y < existing.y) map.set(other.id, next);
+          }
+        }
+      }
+    }
+
+    if (iterations >= maxIterations) return { valid: false };
+
+    // Validate final map against non-moved blocks and mutual overlaps (should be resolved)
+    const movingIds = new Set(map.keys());
+    for (const [id, pos] of map.entries()) {
+      const d = byId.get(id)!;
+      // within check (except allow down overflow when autoGrow)
+      if (!isWithin(pos, d.size)) {
+        const hasRowCap = !!cfg.rows && cfg.rows > 0;
+        const autoGrow = this.getAutoGrowRows ? !!this.getAutoGrowRows() : false;
+        if (!(dir === 'down' && (!hasRowCap || autoGrow))) {
+          return { valid: false };
+        }
+      }
+      // check against non-moving
+      for (const other of all) {
+        if (movingIds.has(other.id)) continue;
+        const endX = pos.x + d.size.width - 1;
+        const endY = pos.y + d.size.height - 1;
+        const oEndX = other.position.x + other.size.width - 1;
+        const oEndY = other.position.y + other.size.height - 1;
+        const h = !(pos.x > oEndX || endX < other.position.x);
+        const v = !(pos.y > oEndY || endY < other.position.y);
+        if (h && v) return { valid: false };
+      }
+    }
+
+    return { valid: true, map, requiredBottom };
   }
 
   destroy(): void {
