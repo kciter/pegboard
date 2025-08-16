@@ -16,13 +16,17 @@ export default meta;
 
 export const Monitoring: StoryObj = {
   render: () => {
-    document.body.classList.add('monitoring-theme');
     const root = document.createElement('div');
-    root.style.width = '100%';
-    root.style.maxWidth = '1200px';
-    root.style.margin = '0 auto';
+    root.className = 'monitoring-theme';
+    root.style.position = 'fixed';
+    root.style.top = '0';
+    root.style.left = '0';
+    root.style.right = '0';
+    root.style.bottom = '0';
 
     const container = document.createElement('div');
+    container.style.maxWidth = '1200px';
+    container.style.margin = '24px auto';
     root.appendChild(container);
 
     const pegboard = new Pegboard({
@@ -30,7 +34,6 @@ export const Monitoring: StoryObj = {
       grid: { columns: 12, rows: 14, rowHeight: 56, gap: 8 },
       editable: true,
       allowOverlap: false,
-      autoGrowRows: true,
     });
 
     pegboard.registerExtension(new BoxBlock());
