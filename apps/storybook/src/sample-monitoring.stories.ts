@@ -34,6 +34,7 @@ export const Monitoring: StoryObj = {
       grid: { columns: 12, rows: 14, rowHeight: 56, gap: 8 },
       editable: true,
       allowOverlap: false,
+      dragReflow: 'axis-shift',
     });
 
     pegboard.registerExtension(new BoxBlock());

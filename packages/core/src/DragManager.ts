@@ -35,7 +35,8 @@ export class DragManager extends EventEmitter {
   private interactionNotified: boolean = false;
   private pendingReflowPositions: Map<string, GridPosition> | null = null;
   private triedReflow: boolean = false;
-  private reflowPreviewOverlays: Map<string, HTMLElement> = new Map();
+  private reflowLivePreviewIds: Set<string> = new Set();
+  private readonly dropEasing = 'transform 160ms ease';
 
   constructor(
     private container: HTMLElement,
@@ -575,7 +576,7 @@ export class DragManager extends EventEmitter {
         this.pendingMoveGridPosition = valid ? candidate : null;
         this.pendingReflowPositions = null;
         this.triedReflow = false;
-  this.clearReflowPreview();
+        this.clearReflowLivePreview();
         this.updateHintOverlay(candidate, blockData.size, valid);
       } else {
         // 겹침 금지: 모든 다른 블록과 충돌 금지
@@ -593,6 +594,8 @@ export class DragManager extends EventEmitter {
           const valid = within && !collideAny;
           this.pendingMoveGridPosition = valid ? candidate : null;
           this.pendingReflowPositions = null;
+          // 기존 라이브 프리뷰가 있었다면 즉시 복귀
+          this.clearReflowLivePreview();
           this.updateHintOverlay(candidate, blockData.size, valid);
         } else {
           // axis-shift 시도
@@ -609,13 +612,13 @@ export class DragManager extends EventEmitter {
             ) {
               this.requestGrowRows && this.requestGrowRows(plan.requiredBottom);
             }
-            this.updateReflowPreview(plan.map);
+            this.updateReflowLivePreview(plan.map);
             this.updateHintOverlay(candidate, blockData.size, true);
           } else {
             this.pendingMoveGridPosition = null;
             this.pendingReflowPositions = null;
             this.triedReflow = true;
-            this.clearReflowPreview();
+            this.clearReflowLivePreview();
             this.updateHintOverlay(candidate, blockData.size, false);
           }
         }
@@ -628,51 +631,41 @@ export class DragManager extends EventEmitter {
     if (this.dragState.isDragging && this.selectedBlock && this.startPosition && this.startSize) {
       const blockData = this.selectedBlock.getData();
       if (this.dragState.dragType === 'move') {
-        this.clearDragPreview();
         const oldPosition = { ...this.startPosition };
         // 전역 transition 초기화 제거 (Pegboard FLIP 보존)
         if (this.selection.size > 1) {
           if (this.pendingGroupMovePositions) {
-            // 그룹 적용
+            // 그룹 FLIP 커밋
+            const moves: Array<{ block: Block; to: GridPosition; from: GridPosition }> = [];
             for (const [id, pos] of this.pendingGroupMovePositions.entries()) {
               const b = this.getBlock(id);
               if (!b) continue;
-              b.setPosition(pos);
+              moves.push({ block: b, to: pos, from: { ...b.getData().position } });
             }
+            this.commitWithFLIP(moves);
             this.emit('block:moved', {
               block: this.selectedBlock.getData(),
               oldPosition,
             });
+          } else {
+            // 유효하지 않은 그룹 드롭: 부드럽게 원위치로 복귀
+            this.revertDragWithEasing();
           }
           this.pendingGroupMovePositions = null;
           this.clearHintOverlay();
         } else {
           // 우선 reflow 커밋
           if (this.pendingReflowPositions) {
+            const moves: Array<{ block: Block; to: GridPosition; from: GridPosition }> = [];
             const movedSummary: Array<{ id: string; from: GridPosition; to: GridPosition }> = [];
             for (const [id, pos] of this.pendingReflowPositions.entries()) {
               const b = this.getBlock(id);
               if (!b) continue;
               const from = { ...b.getData().position };
-              const el = b.getElement();
-              // FLIP animation
-              const before = el.getBoundingClientRect();
-              b.setPosition(pos);
-              const after = el.getBoundingClientRect();
-              const dx = before.left - after.left;
-              const dy = before.top - after.top;
-              el.style.transition = 'transform 150ms ease';
-              el.style.transform = `translate(${dx}px, ${dy}px)`;
-              requestAnimationFrame(() => {
-                el.style.transform = '';
-              });
-              setTimeout(() => {
-                if (!el.classList.contains('pegboard-block-dragging')) {
-                  el.style.transition = '';
-                }
-              }, 200);
+              moves.push({ block: b, to: pos, from });
               movedSummary.push({ id, from, to: { ...pos } });
             }
+            this.commitWithFLIP(moves);
             // anchor moved 이벤트 유지
             this.emit('block:moved', {
               block: this.selectedBlock.getData(),
@@ -685,7 +678,10 @@ export class DragManager extends EventEmitter {
               anchorId: this.selectedBlock.getData().id,
             });
           } else if (this.pendingMoveGridPosition) {
-            this.selectedBlock.setPosition(this.pendingMoveGridPosition);
+            // 단일 이동 FLIP 커밋 (앵커)
+            const b = this.selectedBlock;
+            const from = { ...b.getData().position };
+            this.commitWithFLIP([{ block: b, to: this.pendingMoveGridPosition, from }]);
             this.emit('block:moved', {
               block: this.selectedBlock.getData(),
               oldPosition,
@@ -696,12 +692,16 @@ export class DragManager extends EventEmitter {
               reason: 'no-valid-plan',
               anchorId: this.selectedBlock.getData().id,
             });
+          } else {
+            // reflow 미사용이거나 유효하지 않은 위치에서 드롭: 부드럽게 원위치로 복귀
+            this.revertDragWithEasing();
           }
+          // 라이브 프리뷰 id 정리 (스타일은 FLIP로 처리됨)
+          this.reflowLivePreviewIds.clear();
           this.pendingMoveGridPosition = null;
           this.pendingReflowPositions = null;
           this.triedReflow = false;
           this.clearHintOverlay();
-          this.clearReflowPreview();
         }
       } else if (this.dragState.dragType === 'resize') {
         const oldSize = { ...this.startSize };
@@ -1110,44 +1110,130 @@ export class DragManager extends EventEmitter {
     }
   }
 
-  private updateReflowPreview(map: Map<string, GridPosition>): void {
-    const anchorId = this.dragState.targetBlockId;
-    // prune
-    for (const id of Array.from(this.reflowPreviewOverlays.keys())) {
-      if (!map.has(id) || id === anchorId) {
-        const el = this.reflowPreviewOverlays.get(id)!;
-        el.remove();
-        this.reflowPreviewOverlays.delete(id);
-      }
+  // FLIP 기반 커밋: first(현재 화면) -> setPosition -> last -> invert transform -> animate to 0
+  private commitWithFLIP(moves: Array<{ block: Block; to: GridPosition; from: GridPosition }>) {
+    if (moves.length === 0) return;
+    // 1) First
+    const firstRects = new Map<string, DOMRect>();
+    for (const { block } of moves) {
+      const el = block.getElement();
+      el.classList.remove('pegboard-block-dragging');
+      firstRects.set(block.getData().id, el.getBoundingClientRect());
     }
-    for (const [id, pos] of map.entries()) {
-      if (id === anchorId) continue;
+    // 2) Commit positions
+    for (const { block, to } of moves) {
+      block.setPosition(to);
+    }
+    // 3) Clear any existing transform synchronously and capture last
+    const lastRects = new Map<string, DOMRect>();
+    for (const { block } of moves) {
+      const el = block.getElement();
+      el.style.transition = 'none';
+      el.style.transform = '';
+      lastRects.set(block.getData().id, el.getBoundingClientRect());
+    }
+    // 4) Invert
+    for (const { block } of moves) {
+      const id = block.getData().id;
+      const el = block.getElement();
+      const first = firstRects.get(id)!;
+      const last = lastRects.get(id)!;
+      const dx = first.left - last.left;
+      const dy = first.top - last.top;
+      el.style.transform = `translate(${dx}px, ${dy}px)`;
+    }
+    // 5) Play
+    // Force reflow so the browser acknowledges the transform before transitioning
+    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+    this.container.offsetHeight;
+    requestAnimationFrame(() => {
+      for (const { block } of moves) {
+        const el = block.getElement();
+        el.style.transition = this.dropEasing;
+        el.style.transform = '';
+        setTimeout(() => {
+          if (!el.classList.contains('pegboard-block-dragging')) el.style.transition = '';
+        }, 220);
+      }
+    });
+  }
+
+  // Invalid drop 또는 reflow 'none'에서 불가 위치일 때, 드래그 프리뷰를 부드럽게 원위치로 복귀
+  private revertDragWithEasing(): void {
+    const ids =
+      this.selection.size > 0
+        ? Array.from(this.selection)
+        : this.selectedBlock
+          ? [this.selectedBlock.getData().id]
+          : [];
+    for (const id of ids) {
       const b = this.getBlock(id);
       if (!b) continue;
-      const size = b.getData().size;
-      let el = this.reflowPreviewOverlays.get(id);
-      if (!el) {
-        el = document.createElement('div');
-        el.className = 'pegboard-hint-overlay pegboard-reflow-preview';
-        el.setAttribute('aria-hidden', 'true');
-        el.style.pointerEvents = 'none';
-        el.style.zIndex = '2';
-        el.style.opacity = '0.6';
-        // fallback visual if consumer CSS doesn't style it
-        el.style.backgroundColor = 'rgba(80, 140, 255, 0.2)';
-        el.style.outline = '1px dashed rgba(80, 140, 255, 0.7)';
-        el.style.borderRadius = '4px';
-        this.container.appendChild(el);
-        this.reflowPreviewOverlays.set(id, el);
-      }
-      el.style.gridColumn = `${pos.x} / span ${size.width}`;
-      el.style.gridRow = `${pos.y} / span ${size.height}`;
+      const el = b.getElement();
+      el.classList.remove('pegboard-block-dragging');
+      el.style.transition = this.dropEasing;
+      // 현재 적용된 translate에서 0으로 애니메이션
+      requestAnimationFrame(() => {
+        el.style.transform = '';
+        setTimeout(() => {
+          if (!el.classList.contains('pegboard-block-dragging')) el.style.transition = '';
+        }, 220);
+      });
     }
   }
 
-  private clearReflowPreview(): void {
-    for (const el of this.reflowPreviewOverlays.values()) el.remove();
-    this.reflowPreviewOverlays.clear();
+  // Live preview: animate real blocks to target preview positions using transforms
+  private updateReflowLivePreview(map: Map<string, GridPosition>): void {
+    const anchorId = this.dragState.targetBlockId;
+    const cfg = this.grid.getConfig();
+    const contRect = this.container.getBoundingClientRect();
+    // Reset any transforms for blocks no longer in map
+    for (const id of Array.from(this.reflowLivePreviewIds)) {
+      if (!map.has(id) || id === anchorId) {
+        const b = this.getBlock(id);
+        if (b) {
+          const el = b.getElement();
+          el.style.transition = 'transform 150ms ease';
+          el.style.transform = '';
+          setTimeout(() => {
+            if (!el.classList.contains('pegboard-block-dragging')) el.style.transition = '';
+          }, 180);
+        }
+        this.reflowLivePreviewIds.delete(id);
+      }
+    }
+    // Apply transforms to preview targets
+    for (const [id, targetPos] of map.entries()) {
+      if (id === anchorId) continue;
+      const b = this.getBlock(id);
+      if (!b) continue;
+      const curPos = b.getData().position;
+      // compute px from grid positions
+      const curPx = this.grid.getPixelsFromGridPosition(curPos, this.container);
+      const tgtPx = this.grid.getPixelsFromGridPosition(targetPos, this.container);
+      const dx = tgtPx.x - curPx.x;
+      const dy = tgtPx.y - curPx.y;
+      const el = b.getElement();
+      el.style.transition = 'transform 150ms ease';
+      el.style.transform = `translate(${dx}px, ${dy}px)`;
+      this.reflowLivePreviewIds.add(id);
+    }
+  }
+
+  private clearReflowLivePreview(hard = false): void {
+    for (const id of Array.from(this.reflowLivePreviewIds)) {
+      const b = this.getBlock(id);
+      if (!b) continue;
+      const el = b.getElement();
+      el.style.transition = hard ? '' : 'transform 120ms ease';
+      el.style.transform = '';
+      if (!hard) {
+        setTimeout(() => {
+          if (!el.classList.contains('pegboard-block-dragging')) el.style.transition = '';
+        }, 150);
+      }
+    }
+    this.reflowLivePreviewIds.clear();
   }
 
   private getPrimaryShiftDirection(
@@ -1235,7 +1321,7 @@ export class DragManager extends EventEmitter {
       id: string,
       base: GridPosition,
       size: GridSize,
-      maxRadius = Math.max(cfg.columns, (cfg.rows || 50)) * 2,
+      maxRadius = Math.max(cfg.columns, cfg.rows || 50) * 2,
     ): { pos: GridPosition; requiredBottom?: number } | null => {
       const first = canPlaceAt(id, base, size);
       if (first.ok) return { pos: base, requiredBottom: first.requiredBottom };
@@ -1321,8 +1407,7 @@ export class DragManager extends EventEmitter {
         // bounds/collision check for fallback
         const place = canPlaceAt(other.id, next, other.size);
         if (!place.ok) return { valid: false };
-        if (place.requiredBottom)
-          requiredBottom = Math.max(requiredBottom, place.requiredBottom);
+        if (place.requiredBottom) requiredBottom = Math.max(requiredBottom, place.requiredBottom);
         if (!visited.has(other.id)) {
           map.set(other.id, next);
           queue.push({ id: other.id, pos: next, size: other.size });

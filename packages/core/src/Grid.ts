@@ -201,7 +201,8 @@ export class Grid {
     overlay.style.right = '0';
     overlay.style.bottom = '0';
     overlay.style.pointerEvents = 'none';
-    overlay.style.zIndex = '0';
+    // Overlay must stay visually behind all blocks
+    overlay.style.zIndex = '-1';
     overlay.style.display = 'grid';
     overlay.style.gridTemplateColumns = `repeat(${this.config.columns}, 1fr)`;
     overlay.style.gridAutoRows = `${this.config.rowHeight}px`;
@@ -230,7 +231,8 @@ export class Grid {
       overlay.appendChild(cell);
     }
 
-    container.appendChild(overlay);
+    // Place overlay at the very bottom of the container's children for paint order stability
+    container.insertBefore(overlay, container.firstChild);
   }
 
   hideGridLines(container: HTMLElement): void {
