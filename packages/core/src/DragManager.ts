@@ -692,12 +692,14 @@ export class DragManager extends EventEmitter {
               reason: 'no-valid-plan',
               anchorId: this.selectedBlock.getData().id,
             });
+            // reflow 시도 실패: 앵커 포함 드래그 프리뷰를 원위치로 복귀
+            this.revertDragWithEasing();
           } else {
             // reflow 미사용이거나 유효하지 않은 위치에서 드롭: 부드럽게 원위치로 복귀
             this.revertDragWithEasing();
           }
-          // 라이브 프리뷰 id 정리 (스타일은 FLIP로 처리됨)
-          this.reflowLivePreviewIds.clear();
+          // 라이브 프리뷰 정리 (스타일/transform을 즉시 제거)
+          this.clearReflowLivePreview(true);
           this.pendingMoveGridPosition = null;
           this.pendingReflowPositions = null;
           this.triedReflow = false;
@@ -724,6 +726,8 @@ export class DragManager extends EventEmitter {
       this.finalizeLasso();
     }
     this.resetDragState();
+    // 드래그 프리뷰 transform/클래스 정리(보호 차원)
+    this.clearDragPreview();
     // 인터랙션 종료 알림
     this.emit('interaction:idle', {} as any);
   }
