@@ -81,11 +81,13 @@ export interface EventMap {
   'block:moved': { block: BlockData; oldPosition: GridPosition };
   'block:resized': { block: BlockData; oldSize: GridSize };
   'block:updated': { block: BlockData };
-  'mode:changed': { mode: 'editor' | 'viewer' };
+  'editable:changed': { editable: boolean };
   'grid:changed': { grid: GridConfig };
   'overlap:changed': { allow: boolean };
   'block:selected': { block: BlockData | null };
   'selection:changed': { ids: string[] };
+  'block:edit:entered': { block: BlockData };
+  'block:edit:exited': { block: BlockData };
 }
 
 export interface SerializedPegboardData {

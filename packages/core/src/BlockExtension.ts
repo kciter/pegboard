@@ -3,6 +3,8 @@ import { BlockData } from './types';
 export abstract class BlockExtension<Attrs extends Record<string, any>> {
   abstract readonly type: string;
   readonly defaultAttributes?: Attrs;
+  // Opt-in: set to true if this block supports in-place edit mode
+  readonly allowEditMode?: boolean;
   constructor() {}
 
   /**
@@ -36,6 +38,10 @@ export abstract class BlockExtension<Attrs extends Record<string, any>> {
     container: HTMLElement,
     isEditorMode: boolean,
   ): void;
+
+  // Edit mode lifecycle (optional)
+  onEnterEditMode?(data: BlockData & { attributes: Attrs }, container: HTMLElement): void;
+  onExitEditMode?(data: BlockData & { attributes: Attrs }, container: HTMLElement): void;
 }
 
 export type AnyBlockExtension = BlockExtension<any>;

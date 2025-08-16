@@ -39,7 +39,6 @@ export class DragManager extends EventEmitter {
     private getBlock: (id: string) => Block | undefined,
     private getAllBlocks: () => Block[],
     private getAllowOverlap?: () => boolean,
-    private getPlugin?: (type: string) => AnyBlockExtension | undefined,
     private getLassoEnabled?: () => boolean,
     private getKeyboardMove?: () => boolean,
     private getKeyboardDelete?: () => boolean,
@@ -94,6 +93,11 @@ export class DragManager extends EventEmitter {
 
     const block = this.getBlock(blockId);
     if (!block) return;
+
+    // 편집 모드인 블록은 내부 상호작용을 위해 드래그/리사이즈 시작을 차단
+    if ((block as any).isEditing && (block as any).isEditing()) {
+      return; // 기본 이벤트 그대로 통과 (contenteditable, inputs, buttons 등)
+    }
 
     event.preventDefault();
 
@@ -707,9 +711,9 @@ export class DragManager extends EventEmitter {
     };
 
     const minW = layout.minWidth ?? 1;
-    const maxWPlugin = layout.maxWidth ?? Infinity;
+    const maxW = layout.maxWidth ?? Infinity;
     const minH = layout.minHeight ?? 1;
-    const maxHPlugin = layout.maxHeight ?? Infinity;
+    const maxH = layout.maxHeight ?? Infinity;
 
     const endXFixed = this.startPosition.x + this.startSize.width - 1; // 서쪽 리사이즈 시 우측 엣지 고정
     const endYFixed = this.startPosition.y + this.startSize.height - 1; // 북쪽 리사이즈 시 하단 엣지 고정
@@ -724,7 +728,7 @@ export class DragManager extends EventEmitter {
         // 동쪽: x는 고정, width만 증가/감소. 컬럼 경계와 제약을 동시 고려.
         const rawW = this.startSize.width + gridDeltaX;
         const maxWGrid = columns - this.startPosition.x + 1; // 우측 경계
-        const maxWAll = Math.min(maxWPlugin, maxWGrid);
+        const maxWAll = Math.min(maxW, maxWGrid);
         if (minW > maxWAll) impossibleByMin = true;
         // min을 만족할 수 없는 경우에도 그리드 경계 내로만 움직이며 invalid로 표기
         let w = clamp(rawW, 1, Math.max(1, maxWAll));
@@ -735,7 +739,7 @@ export class DragManager extends EventEmitter {
         // 서쪽: 우측 엣지(endXFixed) 고정, width 변화에 따라 x 재계산
         const rawW = this.startSize.width - gridDeltaX;
         const maxWGrid = endXFixed; // 좌측 경계가 1이므로 width 최대치는 endXFixed(=rightEdgeIndex)
-        const maxWAll = Math.min(maxWPlugin, maxWGrid);
+        const maxWAll = Math.min(maxW, maxWGrid);
         if (minW > maxWAll) impossibleByMin = true;
         // minW가 maxWAll보다 큰 경우엔 그리드 경계 우선 (만족 불가), 가능한 최대치로 제한
         const wClamped = clamp(rawW, 1, Math.max(1, maxWAll));
@@ -758,7 +762,7 @@ export class DragManager extends EventEmitter {
         // 남쪽: y 고정, height 변화. 행 상한(cap)이 있으면 그리드 경계 포함.
         const rawH = this.startSize.height + gridDeltaY;
         const maxHGrid = hasRowCap ? maxRows - this.startPosition.y + 1 : Infinity;
-        const maxHAll = Math.min(maxHPlugin, maxHGrid);
+        const maxHAll = Math.min(maxH, maxHGrid);
         if (minH > maxHAll) impossibleByMin = true;
         let h = clamp(rawH, 1, Math.max(1, maxHAll));
         if (minH <= maxHAll) h = Math.max(h, minH);
@@ -768,7 +772,7 @@ export class DragManager extends EventEmitter {
         // 북쪽: 하단 엣지(endYFixed) 고정, height 변화에 따라 y 재계산
         const rawH = this.startSize.height - gridDeltaY;
         const maxHGrid = endYFixed; // 상단 경계가 1이므로 최대 높이
-        const maxHAll = Math.min(maxHPlugin, maxHGrid);
+        const maxHAll = Math.min(maxH, maxHGrid);
         if (minH > maxHAll) impossibleByMin = true;
         const hClamped = clamp(rawH, 1, Math.max(1, maxHAll));
         candidateSize.height = Math.max(1, Math.min(hClamped, Math.max(1, maxHAll)));

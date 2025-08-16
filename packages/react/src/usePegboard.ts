@@ -18,7 +18,7 @@ export interface UsePegboardOptions {
   onBlockMoved?: EventCallback<{ block: BlockData; oldPosition: any }>;
   onBlockResized?: EventCallback<{ block: BlockData; oldSize: any }>;
   onBlockUpdated?: EventCallback<{ block: BlockData }>;
-  onModeChanged?: EventCallback<{ mode: 'editor' | 'viewer' }>;
+  onEditableChanged?: EventCallback<{ editable: boolean }>;
   onGridChanged?: EventCallback<{ grid: GridConfig }>;
 }
 
@@ -106,7 +106,7 @@ export function usePegboard(options: UsePegboardOptions): UsePegboardReturn {
     bind('block:moved', options.onBlockMoved);
     bind('block:resized', options.onBlockResized);
     bind('block:updated', options.onBlockUpdated);
-    bind('mode:changed', options.onModeChanged);
+    bind('editable:changed', options.onEditableChanged);
     bind('grid:changed', options.onGridChanged);
     return () => {
       bindings.forEach(([ev, h]) => pb.off(ev as any, h));

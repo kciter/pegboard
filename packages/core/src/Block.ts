@@ -5,6 +5,8 @@ export class Block {
   private element: HTMLElement;
   private contentElement: HTMLElement;
   private resizeHandles: HTMLElement[] = [];
+  private supportsEditMode: boolean = false;
+  private editing: boolean = false;
 
   constructor(private data: BlockData) {
     this.element = this.createElement();
@@ -101,6 +103,29 @@ export class Block {
     // immovable 표시를 위해 data-attr 토글(스타일은 CSS에서)
     if (this.data.movable === false) this.element.dataset.movable = 'false';
     else delete this.element.dataset.movable;
+  }
+
+  // Edit mode support
+  setSupportsEditMode(supported: boolean) {
+    this.supportsEditMode = !!supported;
+    if (this.supportsEditMode) this.element.dataset.allowEdit = 'true';
+    else delete this.element.dataset.allowEdit;
+  }
+
+  getSupportsEditMode(): boolean {
+    return this.supportsEditMode;
+  }
+
+  setEditing(editing: boolean) {
+    if (!this.supportsEditMode && editing) return; // ignore enter if not supported
+    this.editing = !!editing;
+    this.element.classList.toggle('pegboard-block-editing', this.editing);
+    // 편집 중에는 리사이즈 핸들 숨김(시각적/상호작용 충돌 방지)
+    if (this.editing) this.clearResizeHandles();
+  }
+
+  isEditing(): boolean {
+    return this.editing;
   }
 
   getData(): BlockData {

@@ -22,6 +22,7 @@ export class Pegboard extends EventEmitter {
   private keyboardDelete: boolean = false;
   private autoGrowRows: boolean = false; // 새 옵션
   private minRows: number | undefined; // 초기 rows를 최소값으로 보관
+  private editingBlockId: string | null = null;
 
   constructor(config: CoreTypes.PegboardConfig) {
     super();
@@ -41,6 +42,7 @@ export class Pegboard extends EventEmitter {
 
     this.setupContainer();
     this.setupDragManager();
+    this.setupEditModeHandlers();
     this.setEditable(config.editable ?? true);
 
     // 초기 rows 자동 보정(초기 블록이 있다면)
@@ -64,7 +66,6 @@ export class Pegboard extends EventEmitter {
       (id: string) => this.blocks.get(id),
       () => Array.from(this.blocks.values()),
       () => this.allowOverlap,
-      (type: string) => this.extensions.get(type),
       () => this.lassoSelection,
       () => this.keyboardMove,
       () => this.keyboardDelete,
@@ -104,6 +105,81 @@ export class Pegboard extends EventEmitter {
     });
   }
 
+  // Edit mode: enter via double-click, exit via outside click or API
+  private setupEditModeHandlers(): void {
+    // delegate dblclick on block
+    this.container.addEventListener('dblclick', (e) => {
+      const target = e.target as HTMLElement;
+      const blockEl = target.closest('.pegboard-block') as HTMLElement | null;
+      if (!blockEl) return;
+      const id = blockEl.dataset.blockId;
+      if (!id) return;
+      const block = this.blocks.get(id);
+      if (!block) return;
+      const ext = this.extensions.get(block.getData().type);
+      if (!ext || !(ext as any).allowEditMode) return; // not opt-in
+      this.enterBlockEditMode(id);
+    });
+
+    // click outside exits edit mode (capture to run before container handlers)
+    document.addEventListener(
+      'mousedown',
+      (e) => {
+        if (!this.editingBlockId) return;
+        const target = e.target as HTMLElement;
+        const block = this.blocks.get(this.editingBlockId!);
+        if (!block) return;
+        const blockEl = block.getElement();
+        if (blockEl.contains(target)) return; // inside
+        this.exitBlockEditMode();
+      },
+      true,
+    );
+  }
+
+  getEditingBlockId(): string | null {
+    return this.editingBlockId;
+  }
+
+  enterBlockEditMode(id: string): boolean {
+    const block = this.blocks.get(id);
+    if (!block) return false;
+    const ext = this.extensions.get(block.getData().type) as any;
+    if (!ext || !ext.allowEditMode) return false;
+    // 이미 편집 중이면 동일 id면 OK, 다르면 교체
+    if (this.editingBlockId && this.editingBlockId !== id) {
+      this.exitBlockEditMode();
+    }
+    this.editingBlockId = id;
+    // 편집 모드 동안 이동/리사이즈를 사실상 비활성화 (키보드 등 포함)
+    block.setEditing(true);
+    this.dragManager.selectBlock(block); // 포커스 동기화
+    // notify extension
+    ext.onEnterEditMode?.(block.getData() as any, block.getContentElement());
+    this.emit('block:edit:entered', { block: block.getData() });
+    return true;
+  }
+
+  exitBlockEditMode(): boolean {
+    if (!this.editingBlockId) return false;
+    const block = this.blocks.get(this.editingBlockId);
+    if (!block) {
+      this.editingBlockId = null;
+      return false;
+    }
+    const ext = this.extensions.get(block.getData().type) as any;
+    block.setEditing(false);
+    ext?.onExitEditMode?.(block.getData() as any, block.getContentElement());
+    this.emit('block:edit:exited', { block: block.getData() });
+    this.editingBlockId = null;
+    return true;
+  }
+
+  toggleBlockEditMode(id: string): boolean {
+    if (this.editingBlockId === id) return this.exitBlockEditMode();
+    return this.enterBlockEditMode(id);
+  }
+
   private showGridLines(): void {
     this.grid.renderGridLines(this.container);
   }
@@ -112,8 +188,15 @@ export class Pegboard extends EventEmitter {
     this.grid.hideGridLines(this.container);
   }
 
-  registerExtension(plugin: AnyBlockExtension): void {
-    this.extensions.set(plugin.type, plugin);
+  registerExtension(extension: AnyBlockExtension): void {
+    this.extensions.set(extension.type, extension);
+    // If blocks of this type already exist, mark them as supporting edit mode when opted-in
+    const allow = (extension as any).allowEditMode;
+    if (allow) {
+      for (const b of this.blocks.values()) {
+        if (b.getData().type === extension.type) b.setSupportsEditMode(true);
+      }
+    }
   }
 
   unregisterExtension(type: string): void {
@@ -162,7 +245,7 @@ export class Pegboard extends EventEmitter {
   addBlock(data: PartialKeys<CoreTypes.BlockData, 'id' | 'attributes'>): string {
     const extension = this.extensions.get(data.type);
     if (!extension) {
-      throw new Error(`Plugin not found for block type: ${data.type}`);
+      throw new Error(`Extension not found for block type: ${data.type}`);
     }
 
     const existingBlocks = Array.from(this.blocks.values()).map((b) => b.getData());
@@ -247,6 +330,9 @@ export class Pegboard extends EventEmitter {
 
     const block = new Block(blockData);
     block.setEditable(this.editable);
+    // Opt-in edit mode support (stored on block for quick checks)
+    const ext = this.extensions.get(blockData.type) as any;
+    block.setSupportsEditMode(!!ext?.allowEditMode);
 
     this.blocks.set(blockData.id, block);
     this.container.appendChild(block.getElement());
@@ -267,6 +353,11 @@ export class Pegboard extends EventEmitter {
   removeBlock(id: string): boolean {
     const block = this.blocks.get(id);
     if (!block) return false;
+
+    // If currently editing this block, exit edit mode first
+    if (this.editingBlockId === id) {
+      this.exitBlockEditMode();
+    }
 
     if (this.dragManager.getSelectedBlock() === block) {
       this.dragManager.selectBlock(null);
@@ -434,6 +525,8 @@ export class Pegboard extends EventEmitter {
     if (this.editable) {
       this.showGridLines();
     } else {
+      // Leaving editor mode should end edit mode if active
+      if (this.editingBlockId) this.exitBlockEditMode();
       this.hideGridLines();
       this.dragManager.selectBlock(null);
     }

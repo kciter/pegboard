@@ -1,7 +1,11 @@
 :root {
-  --pegboard-accent: #1e90ff;
+  --pegboard-accent: hsl(210, 100%, 56%);
+  --pegboard-edit-accent: #e48e14;
   --pegboard-handle-size: 8px;
   --pegboard-outline-width: 1px;
+  --pegboard-edit-outline-width: 2px;
+  --pegboard-edit-outline-offset: 6px;
+  --pegboard-transition-ms: 160ms;
   --pegboard-grid-line-color: rgba(0, 0, 0, 0.1);
   --pegboard-grid-overlay-opacity: 0.5;
 }
@@ -33,6 +37,9 @@
   position: relative;
   box-sizing: border-box;
   user-select: none;
+  transition: outline-color var(--pegboard-transition-ms) ease,
+    outline-offset var(--pegboard-transition-ms) ease,
+    box-shadow var(--pegboard-transition-ms) ease;
 }
 .pegboard-block-content {
   position: relative;
@@ -45,6 +52,12 @@
 .pegboard-block-selected {
   outline: var(--pegboard-outline-width) solid var(--pegboard-accent);
   outline-offset: 0;
+}
+
+/* Selection in edit mode: offset and different color */
+.pegboard-block-editing.pegboard-block-selected {
+  outline: var(--pegboard-edit-outline-width) solid var(--pegboard-edit-accent);
+  outline-offset: var(--pegboard-edit-outline-offset);
 }
 
 /* Resize handles */
@@ -98,6 +111,8 @@
 /* Editor move cursor */
 .pegboard-editor-mode .pegboard-block { cursor: move; }
 .pegboard-editor-mode .pegboard-block[data-movable="false"] { cursor: default; }
+/* In edit mode, allow native cursors (text/pointer) inside the block */
+.pegboard-editor-mode .pegboard-block.pegboard-block-editing { cursor: auto !important; }
 
 /* Editor/viewer mode hooks */
 .pegboard-editor-mode .pegboard-resize-handle-nw,
@@ -116,6 +131,16 @@
 .pegboard-viewer-mode .pegboard-resize-handle-s,
 .pegboard-viewer-mode .pegboard-resize-handle-w,
 .pegboard-viewer-mode .pegboard-resize-handle-e { display: none; }
+
+/* Hide resize handles while a block is in edit mode */
+.pegboard-block.pegboard-block-editing .pegboard-resize-handle-nw,
+.pegboard-block.pegboard-block-editing .pegboard-resize-handle-ne,
+.pegboard-block.pegboard-block-editing .pegboard-resize-handle-sw,
+.pegboard-block.pegboard-block-editing .pegboard-resize-handle-se,
+.pegboard-block.pegboard-block-editing .pegboard-resize-handle-n,
+.pegboard-block.pegboard-block-editing .pegboard-resize-handle-s,
+.pegboard-block.pegboard-block-editing .pegboard-resize-handle-w,
+.pegboard-block.pegboard-block-editing .pegboard-resize-handle-e { display: none !important; }
 
 /* 드래그 중에는 transform 애니메이션 비활성화 */
 .pegboard-block-dragging { transition: none !important; }
