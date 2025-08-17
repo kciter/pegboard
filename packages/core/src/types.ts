@@ -53,6 +53,8 @@ export interface PegboardConfig {
   grid: GridConfig;
   editable?: boolean;
   allowOverlap?: boolean;
+  // 다른 Pegboard로 블록을 드래그-아웃(이동) 허용 여부
+  dragOut?: boolean;
   autoArrange?: boolean;
   autoArrangeStrategy?: AutoArrangeStrategy;
   arrangeAnimationMs?: number;

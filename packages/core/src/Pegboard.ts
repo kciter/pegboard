@@ -5,6 +5,7 @@ import { Grid } from './Grid';
 import { DragManager } from './DragManager';
 import { EventEmitter } from './EventEmitter';
 import { generateId, deepClone } from './utils';
+import { CrossBoardCoordinator } from './CrossBoardCoordinator';
 
 type PartialKeys<T, K extends keyof T> = Omit<T, K> & Partial<Pick<T, K>>;
 
@@ -30,6 +31,7 @@ export class Pegboard extends EventEmitter {
   private autoArrangeStrategy: CoreTypes.AutoArrangeStrategy = 'top-left';
   private arrangeAnimationMs: number = 160;
   private isArranging: boolean = false;
+  private dragOut: boolean = false;
 
   constructor(config: CoreTypes.PegboardConfig) {
     super();
@@ -48,6 +50,8 @@ export class Pegboard extends EventEmitter {
     this.autoArrange = config.autoArrange ?? false;
     this.autoArrangeStrategy = config.autoArrangeStrategy ?? 'top-left';
     this.arrangeAnimationMs = config.arrangeAnimationMs ?? 160;
+    // cross-board drag option
+    this.dragOut = !!(config as any).dragOut;
 
     // autoGrowRows일 때는 검증 단계에서 rows 상한을 넘는 배치도 임시 허용하도록 Grid에 힌트
     (this.grid as any).setUnboundedRows?.(this.autoGrowRows);
@@ -61,6 +65,8 @@ export class Pegboard extends EventEmitter {
     this.recomputeRowsIfNeeded();
     // 초기 자동 배치
     this.autoArrangeIfEnabled();
+    // Register to cross-board coordinator
+    CrossBoardCoordinator.register(this as any);
   }
 
   private setupContainer(): void {
@@ -618,6 +624,43 @@ export class Pegboard extends EventEmitter {
     return this.grid.getConfig();
   }
 
+  // Cross-board helpers
+  getContainer(): HTMLElement {
+    return this.container;
+  }
+
+  getDragOutEnabled(): boolean {
+    return !!this.dragOut;
+  }
+
+  // Expose hint control for external previews (rendered within this board)
+  showExternalHint(pos: CoreTypes.GridPosition, size: CoreTypes.GridSize, valid: boolean): void {
+    (this.dragManager as any).showExternalHint?.(pos, size, valid);
+  }
+  clearExternalHint(): void {
+    (this.dragManager as any).clearExternalHint?.();
+  }
+
+  // Convert viewport pixels to this board's grid position
+  getGridPositionFromViewport(pt: { x: number; y: number }): CoreTypes.GridPosition {
+    return this.grid.getGridPositionFromPixels({ x: pt.x, y: pt.y }, this.container);
+  }
+
+  // Validate a position/size against this board's grid bounds
+  isValidPosition(pos: CoreTypes.GridPosition, size: CoreTypes.GridSize): boolean {
+    return this.grid.isValidGridPosition(pos, size);
+  }
+
+  // Check collision at a position/size with existing blocks in this board
+  wouldCollide(
+    pos: CoreTypes.GridPosition,
+    size: CoreTypes.GridSize,
+    excludeId: string = '',
+  ): boolean {
+    const existing = this.getAllBlocks();
+    return this.grid.checkGridCollision(pos, size, excludeId, existing as any);
+  }
+
   exportData(): { blocks: CoreTypes.BlockData[]; grid: CoreTypes.GridConfig } {
     return {
       blocks: this.getAllBlocks(),
@@ -890,6 +933,7 @@ export class Pegboard extends EventEmitter {
       'pegboard-editor-mode',
       'pegboard-viewer-mode',
     );
+    CrossBoardCoordinator.unregister(this as any);
   }
 
   // 새 기능: 블록 하단에 맞춰 rows 자동 증감
@@ -1148,7 +1192,7 @@ export class Pegboard extends EventEmitter {
           return a.getData().id.localeCompare(b.getData().id);
         });
 
-  const proposed = new Map<string, CoreTypes.GridPosition>();
+      const proposed = new Map<string, CoreTypes.GridPosition>();
 
       const collidesWithProposed = (pos: CoreTypes.GridPosition, size: CoreTypes.GridSize) => {
         for (const [id, p] of proposed.entries()) {
@@ -1188,9 +1232,13 @@ export class Pegboard extends EventEmitter {
         //    같은 대역에서 최소한으로 아래로 내리며 빈 위치를 탐색하는 폴백
         if (
           bestY === d.position.y &&
-          collidesWithProposed({ x, y: bestY, zIndex: d.position.zIndex } as CoreTypes.GridPosition, size)
+          collidesWithProposed(
+            { x, y: bestY, zIndex: d.position.zIndex } as CoreTypes.GridPosition,
+            size,
+          )
         ) {
-          const hardCap = rowsCap === Infinity ? (cfg.rows || d.position.y + 2000) : (rowsCap as number);
+          const hardCap =
+            rowsCap === Infinity ? cfg.rows || d.position.y + 2000 : (rowsCap as number);
           for (let y = d.position.y + 1; y <= hardCap; y++) {
             const candidate = { x, y, zIndex: d.position.zIndex } as CoreTypes.GridPosition;
             const within = candidate.y >= 1 && candidate.y + size.height - 1 <= hardCap;

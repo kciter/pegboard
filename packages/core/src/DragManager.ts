@@ -2,6 +2,7 @@ import { DragState, GridSize, GridPosition, DragReflowStrategy } from './types';
 import { Block } from './Block';
 import { Grid } from './Grid';
 import { EventEmitter } from './EventEmitter';
+import { CrossBoardCoordinator } from './CrossBoardCoordinator';
 
 export class DragManager extends EventEmitter {
   private dragState: DragState = {
@@ -36,6 +37,8 @@ export class DragManager extends EventEmitter {
   private triedReflow: boolean = false;
   private reflowLivePreviewIds: Set<string> = new Set();
   private readonly dropEasing = 'transform 160ms ease';
+  private externalHintTarget: any | null = null;
+  private lastPointer: { x: number; y: number } | null = null;
 
   constructor(
     private container: HTMLElement,
@@ -367,13 +370,56 @@ export class DragManager extends EventEmitter {
       });
       return;
     }
-    if (!this.dragState.isDragging || !this.selectedBlock) return;
+    if (!this.dragState.isDragging || !this.selectedBlock) {
+      return;
+    }
     if (!this.interactionNotified) {
       this.emit('interaction:active', { mode: this.dragState.dragType } as any);
       this.interactionNotified = true;
     }
-    if (this.dragState.dragType === 'move') {
+    // store last pointer for cross-board drop
+    this.lastPointer = { x: event.clientX, y: event.clientY };
+  if (this.dragState.dragType === 'move') {
       this.handleSmoothMove(event);
+      // Cross-board hint preview
+      const targetBoard = CrossBoardCoordinator.hitTest(event.clientX, event.clientY);
+      const sourceBoard = CrossBoardCoordinator.getByContainer(this.container);
+    if (
+        targetBoard &&
+        targetBoard !== sourceBoard &&
+        (sourceBoard as any)?.getDragOutEnabled?.()
+      ) {
+        const b = this.selectedBlock!;
+        const size = b.getData().size;
+        const targetGrid: Grid | undefined = (targetBoard as any).grid;
+        if (targetGrid) {
+      const targEl = (targetBoard as any).getContainer();
+      const tRect = targEl.getBoundingClientRect();
+      const adjustedX = event.clientX - (this.pointerDownOffset?.dx || 0);
+      const adjustedY = event.clientY - (this.pointerDownOffset?.dy || 0);
+      const pos = targetGrid.getGridPositionFromPixels({ x: adjustedX, y: adjustedY }, targEl);
+          const within = targetGrid.isValidGridPosition(pos, size);
+          const allowOverlap = (targetBoard as any).getAllowOverlap?.() ?? false;
+          let valid = within;
+          if (!allowOverlap) {
+            const existing = ((targetBoard as any).getAllBlocks?.() || []) as Array<{
+              id: string;
+              position: GridPosition;
+              size: GridSize;
+            }>;
+            valid = within && !targetGrid.checkGridCollision(pos, size, '', existing);
+          }
+          (targetBoard as any).showExternalHint?.(pos, size, valid);
+          this.externalHintTarget = targetBoard;
+      // Prefer cross-board: don't keep a local pending move when hovering target
+      this.pendingMoveGridPosition = null;
+      // Hide local hint overlay to avoid confusion
+      this.clearHintOverlay();
+        }
+      } else if (this.externalHintTarget) {
+        (this.externalHintTarget as any).clearExternalHint?.();
+        this.externalHintTarget = null;
+      }
     } else if (this.dragState.dragType === 'resize') {
       this.handleResize(event);
     }
@@ -466,8 +512,19 @@ export class DragManager extends EventEmitter {
     const hasRowCap = !!config.rows && config.rows > 0 && !autoGrow;
     const maxTop = hasRowCap ? paddingTop + Math.max(0, innerHeight - blockPixelHeight) : Infinity;
 
-    rawLeft = Math.max(minLeft, Math.min(maxLeft, rawLeft));
-    rawTop = Math.max(minTop, Math.min(maxTop, rawTop));
+    // Cross-board: when pointer is outside this container and dragOut is enabled, don't clamp
+    const outOfContainer =
+      event.clientX < rect.left ||
+      event.clientX > rect.right ||
+      event.clientY < rect.top ||
+      event.clientY > rect.bottom;
+    const sourceBoard = CrossBoardCoordinator.getByContainer(this.container);
+    const allowDragOut = (sourceBoard as any)?.getDragOutEnabled?.();
+
+    if (!(outOfContainer && allowDragOut)) {
+      rawLeft = Math.max(minLeft, Math.min(maxLeft, rawLeft));
+      rawTop = Math.max(minTop, Math.min(maxTop, rawTop));
+    }
 
     // 시각적 이동: transform 사용 (grid-position 즉시 변경 안함)
     const deltaX = rawLeft - this.startBlockPixelPos.left;
@@ -678,6 +735,57 @@ export class DragManager extends EventEmitter {
               moved: movedSummary,
               anchorId: this.selectedBlock.getData().id,
             });
+          } else if (this.externalHintTarget && this.lastPointer) {
+            // Cross-board drop
+            const targetBoard = this.externalHintTarget;
+            const currentBoard = CrossBoardCoordinator.getByContainer(this.container);
+            const allowDragOut = (currentBoard as any)?.getDragOutEnabled?.();
+            try {
+              if (targetBoard && currentBoard && targetBoard !== currentBoard && allowDragOut) {
+                const b = this.selectedBlock!;
+                const data = b.getData();
+                const targetGrid: Grid | undefined = (targetBoard as any).grid;
+                if (targetGrid) {
+                  const targEl = (targetBoard as any).getContainer();
+                  const adjustedX = this.lastPointer.x - (this.pointerDownOffset?.dx || 0);
+                  const adjustedY = this.lastPointer.y - (this.pointerDownOffset?.dy || 0);
+                  const pos = targetGrid.getGridPositionFromPixels(
+                    { x: adjustedX, y: adjustedY },
+                    targEl,
+                  );
+                  const within = targetGrid.isValidGridPosition(pos, data.size);
+                  const allowOverlap = (targetBoard as any).getAllowOverlap?.() ?? false;
+                  let valid = within;
+                  if (!allowOverlap) {
+                    const existing = ((targetBoard as any).getAllBlocks?.() || []) as Array<{
+                      id: string;
+                      position: GridPosition;
+                      size: GridSize;
+                    }>;
+                    valid = within && !targetGrid.checkGridCollision(pos, data.size, '', existing);
+                  }
+                  if (valid) {
+                    try {
+                      (targetBoard as any).addBlock({
+                        id: data.id,
+                        type: data.type,
+                        position: pos,
+                        size: data.size,
+                        attributes: data.attributes,
+                        movable: data.movable,
+                        resizable: data.resizable,
+                        constraints: data.constraints,
+                      });
+                      (currentBoard as any).removeBlock(data.id);
+                      didCommit = true;
+                    } catch {}
+                  }
+                }
+              }
+            } finally {
+              (this.externalHintTarget as any)?.clearExternalHint?.();
+              this.externalHintTarget = null;
+            }
           } else if (this.pendingMoveGridPosition) {
             // 단일 이동 FLIP 커밋 (앵커)
             const b = this.selectedBlock;
@@ -688,6 +796,57 @@ export class DragManager extends EventEmitter {
               block: this.selectedBlock.getData(),
               oldPosition,
             });
+          } else if (this.externalHintTarget && this.lastPointer) {
+            // Cross-board drop
+            const targetBoard = this.externalHintTarget;
+            const currentBoard = CrossBoardCoordinator.getByContainer(this.container);
+            const allowDragOut = (currentBoard as any)?.getDragOutEnabled?.();
+            try {
+              if (targetBoard && currentBoard && targetBoard !== currentBoard && allowDragOut) {
+                const b = this.selectedBlock!;
+                const data = b.getData();
+                const targetGrid: Grid | undefined = (targetBoard as any).grid;
+                if (targetGrid) {
+                  const pos = targetGrid.getGridPositionFromPixels(
+                    { x: this.lastPointer.x, y: this.lastPointer.y },
+                    (targetBoard as any).getContainer(),
+                  );
+                  const within = targetGrid.isValidGridPosition(pos, data.size);
+                  const allowOverlap = (targetBoard as any).getAllowOverlap?.() ?? false;
+                  let valid = within;
+                  if (!allowOverlap) {
+                    const existing = ((targetBoard as any).getAllBlocks?.() || []) as Array<{
+                      id: string;
+                      position: GridPosition;
+                      size: GridSize;
+                    }>;
+                    valid = within && !targetGrid.checkGridCollision(pos, data.size, '', existing);
+                  }
+                  if (valid) {
+                    // Attempt to add to target then remove from current
+                    try {
+                      (targetBoard as any).addBlock({
+                        id: data.id,
+                        type: data.type,
+                        position: pos,
+                        size: data.size,
+                        attributes: data.attributes,
+                        movable: data.movable,
+                        resizable: data.resizable,
+                        constraints: data.constraints,
+                      });
+                      (currentBoard as any).removeBlock(data.id);
+                      didCommit = true;
+                    } catch {
+                      // ignore failure, fallback to revert below
+                    }
+                  }
+                }
+              }
+            } finally {
+              (this.externalHintTarget as any)?.clearExternalHint?.();
+              this.externalHintTarget = null;
+            }
           } else if (this.triedReflow) {
             this.emit('reflow:failed' as any, {
               strategy: (this.getDragReflow ? this.getDragReflow() : 'none') as DragReflowStrategy,
@@ -1102,6 +1261,14 @@ export class DragManager extends EventEmitter {
       this.hintElement.remove();
       this.hintElement = null;
     }
+  }
+
+  // External hint from cross-board preview (rendered in this board)
+  public showExternalHint(pos: GridPosition, size: GridSize, valid: boolean): void {
+    this.updateHintOverlay(pos, size, valid);
+  }
+  public clearExternalHint(): void {
+    this.clearHintOverlay();
   }
 
   private clearDragPreview(): void {

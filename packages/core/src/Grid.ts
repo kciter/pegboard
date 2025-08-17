@@ -57,7 +57,7 @@ export class Grid {
     });
   }
 
-  // viewport 좌표(event.clientX/Y)를 받아 컨테이너 내부 그리드 좌표로 변환하도록 수정
+  // viewport 좌표(event.clientX/Y 등) 기준 픽셀을 받아 컨테이너 내부 그리드 좌표로 변환
   getGridPositionFromPixels(position: Position, container: HTMLElement): GridPosition {
     const rect = container.getBoundingClientRect();
     const containerStyles = getComputedStyle(container);
@@ -70,8 +70,9 @@ export class Grid {
       (innerWidth - this.config.gap * (this.config.columns - 1)) / this.config.columns;
     const effectiveRowHeight = this.config.rowHeight + this.config.gap;
 
-    const relativeX = position.x - rect.left - paddingLeft;
-    const relativeY = position.y - rect.top - paddingTop;
+  // position은 viewport 좌표로 가정한다. 컨테이너 offset과 padding을 제거해 내부 좌표를 계산.
+  const relativeX = position.x - rect.left - paddingLeft;
+  const relativeY = position.y - rect.top - paddingTop;
 
     const x = Math.max(
       1,
