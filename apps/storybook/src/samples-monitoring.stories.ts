@@ -10,7 +10,7 @@ import { AlertsBlock } from './blocks/alerts-block';
 import '../src/styles/monitoring-theme.css';
 
 const meta: Meta = {
-  title: 'Sample/Monitoring',
+  title: 'Samples/Monitoring',
 };
 export default meta;
 
