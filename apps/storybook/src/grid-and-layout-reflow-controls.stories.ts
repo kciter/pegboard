@@ -42,7 +42,6 @@ export const Reflow: StoryObj<{ reflow: Reflow; autoGrowRows: boolean }> = {
       autoArrange: false,
       autoGrowRows: !!args.autoGrowRows,
       dragReflow: reflow,
-      gridOverlayMode: 'active',
     });
 
     pegboard.registerExtension(new BoxBlock());

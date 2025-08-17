@@ -45,7 +45,7 @@ export interface GridConfig {
 }
 
 export type DragReflowStrategy = 'none' | 'axis-shift';
-export type AutoArrangeStrategy = 'top-left';
+export type AutoArrangeStrategy = 'top-left' | 'masonry' | 'by-row' | 'by-column';
 export type GridOverlayMode = 'always' | 'never' | 'active';
 
 export interface PegboardConfig {

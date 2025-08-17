@@ -923,6 +923,12 @@ export class Pegboard extends EventEmitter {
     if (this.dragManager && this.dragManager.isDragging()) return;
     if (this.autoArrangeStrategy === 'top-left') {
       this.arrangeTopLeft();
+    } else if (this.autoArrangeStrategy === 'masonry') {
+      this.arrangeMasonry();
+    } else if (this.autoArrangeStrategy === 'by-row') {
+      this.arrangeByRow();
+    } else if (this.autoArrangeStrategy === 'by-column') {
+      this.arrangeByColumn();
     }
   }
 
@@ -981,7 +987,7 @@ export class Pegboard extends EventEmitter {
         return pos.y >= 1 && pos.y + size.height - 1 <= rows;
       };
 
-      const findSpot = (size: CoreTypes.GridSize): CoreTypes.GridPosition => {
+      const findSpot = (size: CoreTypes.GridSize): CoreTypes.GridPosition | null => {
         const maxRows = this.autoGrowRows ? Math.max(cfg.rows || 0, 1000) : cfg.rows || 1000;
         for (let y = 1; y <= maxRows; y++) {
           for (let x = 1; x <= cfg.columns - size.width + 1; x++) {
@@ -990,15 +996,325 @@ export class Pegboard extends EventEmitter {
             if (!collides(p, size)) return p;
           }
         }
-        // fallback: keep at 1,1
-        return { x: 1, y: 1, zIndex: 1 };
+        // no spot
+        return null;
       };
 
       for (const b of items) {
         const d = b.getData();
         const spot = findSpot(d.size);
-        proposed.set(d.id, { x: spot.x, y: spot.y, zIndex: d.position.zIndex });
-        requiredBottom = Math.max(requiredBottom, spot.y + d.size.height - 1);
+        if (spot) {
+          proposed.set(d.id, { x: spot.x, y: spot.y, zIndex: d.position.zIndex });
+          requiredBottom = Math.max(requiredBottom, spot.y + d.size.height - 1);
+        } else {
+          // keep original position and mark bottom for potential row growth
+          proposed.set(d.id, { ...d.position });
+          requiredBottom = Math.max(requiredBottom, d.position.y + d.size.height - 1);
+        }
+      }
+
+      // autoGrowRows: 필요한 경우 rows 확장
+      if (this.autoGrowRows && requiredBottom > (cfg.rows || 0)) {
+        this.grid.updateConfig({ rows: requiredBottom });
+        this.grid.applyGridStyles(this.container);
+        if (this.editable) this.showGridLines();
+        this.emit('grid:changed', { grid: this.grid.getConfig() });
+      }
+
+      // FLIP 애니메이션으로 커밋
+      const firstRects = new Map<string, DOMRect>();
+      for (const b of items) {
+        firstRects.set(b.getData().id, b.getElement().getBoundingClientRect());
+      }
+      // set positions
+      for (const b of items) {
+        const id = b.getData().id;
+        const to = proposed.get(id)!;
+        const from = b.getData().position;
+        if (from.x === to.x && from.y === to.y) continue; // unchanged
+        b.setPosition(to);
+      }
+      // last rects and invert
+      const lastRects = new Map<string, DOMRect>();
+      for (const b of items) {
+        lastRects.set(b.getData().id, b.getElement().getBoundingClientRect());
+      }
+      // apply transforms
+      for (const b of items) {
+        const id = b.getData().id;
+        const fromRect = firstRects.get(id)!;
+        const toRect = lastRects.get(id)!;
+        const el = b.getElement();
+        el.style.transition = 'none';
+        el.style.transform = `translate(${fromRect.left - toRect.left}px, ${fromRect.top - toRect.top}px)`;
+      }
+      // play
+      // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+      this.container.offsetHeight;
+      for (const b of items) {
+        const el = b.getElement();
+        el.style.transition = `transform ${this.arrangeAnimationMs}ms ease`;
+        el.style.transform = '';
+        setTimeout(() => {
+          el.style.transition = '';
+        }, this.arrangeAnimationMs + 80);
+      }
+    } finally {
+      this.isArranging = false;
+    }
+  }
+
+  // By-row: 각 블록을 현재 세로 대역(y..y+height-1)에서 가능한 한 왼쪽으로만 당겨 정렬(행 고정 수평 컴팩션)
+  private arrangeByRow(): void {
+    const cfg = this.grid.getConfig();
+    if (cfg.columns <= 0) return;
+    if (this.allowOverlap) return;
+    const blocks = Array.from(this.blocks.values());
+    if (blocks.length === 0) return;
+
+    this.isArranging = true;
+    try {
+      // 안정적 순서: 같은 행 대역부터 처리(y asc), 행 내에서는 x asc, 그다음 id
+      const items = blocks
+        .map((b) => b)
+        .sort((a, b) => {
+          const ap = a.getData().position,
+            bp = b.getData().position;
+          if (ap.y !== bp.y) return ap.y - bp.y;
+          if (ap.x !== bp.x) return ap.x - bp.x;
+          return a.getData().id.localeCompare(b.getData().id);
+        });
+
+      const proposed = new Map<string, CoreTypes.GridPosition>();
+
+      const collidesWithProposed = (pos: CoreTypes.GridPosition, size: CoreTypes.GridSize) => {
+        for (const [id, p] of proposed.entries()) {
+          const b = this.blocks.get(id)!;
+          const s = b.getData().size;
+          const endX = pos.x + size.width - 1;
+          const endY = pos.y + size.height - 1;
+          const oEndX = p.x + s.width - 1;
+          const oEndY = p.y + s.height - 1;
+          const h = !(pos.x > oEndX || endX < p.x);
+          const v = !(pos.y > oEndY || endY < p.y);
+          if (h && v) return true;
+        }
+        return false;
+      };
+
+      for (const b of items) {
+        const d = b.getData();
+        const y = d.position.y; // 행 대역 고정
+        const size = d.size;
+        let bestX = d.position.x;
+        for (let x = 1; x <= d.position.x; x++) {
+          const candidate = { x, y, zIndex: d.position.zIndex } as CoreTypes.GridPosition;
+          // 그리드 경계 확인
+          const within = candidate.x >= 1 && candidate.x + size.width - 1 <= cfg.columns;
+          if (!within) continue;
+          if (!collidesWithProposed(candidate, size)) {
+            bestX = x;
+            break;
+          }
+        }
+        proposed.set(d.id, { x: bestX, y, zIndex: d.position.zIndex });
+      }
+
+      this.commitArrangeWithFLIP(items, proposed);
+    } finally {
+      this.isArranging = false;
+    }
+  }
+
+  // By-column: 각 블록을 현재 가로 대역(x..x+width-1)에서 가능한 한 위로만 당겨 정렬(열 고정 수직 컴팩션)
+  private arrangeByColumn(): void {
+    const cfg = this.grid.getConfig();
+    if (cfg.columns <= 0) return;
+    if (this.allowOverlap) return;
+    const blocks = Array.from(this.blocks.values());
+    if (blocks.length === 0) return;
+
+    this.isArranging = true;
+    try {
+      // 안정적 순서(수직 안정성): 위에서 아래로(y asc), 동일 y에서는 x asc, 그다음 id
+      // 이렇게 하면 아래에 있던 블록이 위의 블록을 뛰어넘어 올라가지 않음
+      const items = blocks
+        .map((b) => b)
+        .sort((a, b) => {
+          const ap = a.getData().position,
+            bp = b.getData().position;
+          if (ap.y !== bp.y) return ap.y - bp.y;
+          if (ap.x !== bp.x) return ap.x - bp.x;
+          return a.getData().id.localeCompare(b.getData().id);
+        });
+
+  const proposed = new Map<string, CoreTypes.GridPosition>();
+
+      const collidesWithProposed = (pos: CoreTypes.GridPosition, size: CoreTypes.GridSize) => {
+        for (const [id, p] of proposed.entries()) {
+          const b = this.blocks.get(id)!;
+          const s = b.getData().size;
+          const endX = pos.x + size.width - 1;
+          const endY = pos.y + size.height - 1;
+          const oEndX = p.x + s.width - 1;
+          const oEndY = p.y + s.height - 1;
+          const h = !(pos.x > oEndX || endX < p.x);
+          const v = !(pos.y > oEndY || endY < p.y);
+          if (h && v) return true;
+        }
+        return false;
+      };
+
+      for (const b of items) {
+        const d = b.getData();
+        const x = d.position.x; // 열 대역 고정
+        const size = d.size;
+        let bestY = d.position.y;
+        const rowsCap = this.autoGrowRows ? Infinity : (cfg.rows ?? Infinity);
+        // 1) 위쪽으로만 스캔하며 가능한 가장 위(y가 작은) 위치 찾기
+        for (let y = 1; y <= d.position.y; y++) {
+          const candidate = { x, y, zIndex: d.position.zIndex } as CoreTypes.GridPosition;
+          const within =
+            candidate.y >= 1 &&
+            candidate.y + size.height - 1 <=
+              (rowsCap === Infinity ? Number.MAX_SAFE_INTEGER : (rowsCap as number));
+          if (!within) continue;
+          if (!collidesWithProposed(candidate, size)) {
+            bestY = y;
+            break;
+          }
+        }
+        // 2) 위쪽에서 자리를 못 찾았고, 현재 위치가 이미 충돌한다면(겹침 방지)
+        //    같은 대역에서 최소한으로 아래로 내리며 빈 위치를 탐색하는 폴백
+        if (
+          bestY === d.position.y &&
+          collidesWithProposed({ x, y: bestY, zIndex: d.position.zIndex } as CoreTypes.GridPosition, size)
+        ) {
+          const hardCap = rowsCap === Infinity ? (cfg.rows || d.position.y + 2000) : (rowsCap as number);
+          for (let y = d.position.y + 1; y <= hardCap; y++) {
+            const candidate = { x, y, zIndex: d.position.zIndex } as CoreTypes.GridPosition;
+            const within = candidate.y >= 1 && candidate.y + size.height - 1 <= hardCap;
+            if (!within) continue;
+            if (!collidesWithProposed(candidate, size)) {
+              bestY = y;
+              break;
+            }
+          }
+        }
+        proposed.set(d.id, { x, y: bestY, zIndex: d.position.zIndex });
+      }
+
+      this.commitArrangeWithFLIP(items, proposed);
+    } finally {
+      this.isArranging = false;
+    }
+  }
+
+  // 공통 FLIP 커밋 헬퍼
+  private commitArrangeWithFLIP(items: Block[], proposed: Map<string, CoreTypes.GridPosition>) {
+    const firstRects = new Map<string, DOMRect>();
+    for (const b of items) firstRects.set(b.getData().id, b.getElement().getBoundingClientRect());
+    for (const b of items) {
+      const id = b.getData().id;
+      const to = proposed.get(id)!;
+      const from = b.getData().position;
+      if (to && !(from.x === to.x && from.y === to.y)) b.setPosition(to);
+    }
+    const lastRects = new Map<string, DOMRect>();
+    for (const b of items) lastRects.set(b.getData().id, b.getElement().getBoundingClientRect());
+    for (const b of items) {
+      const id = b.getData().id;
+      const fromRect = firstRects.get(id)!;
+      const toRect = lastRects.get(id)!;
+      const el = b.getElement();
+      el.style.transition = 'none';
+      el.style.transform = `translate(${fromRect.left - toRect.left}px, ${fromRect.top - toRect.top}px)`;
+    }
+    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+    this.container.offsetHeight;
+    for (const b of items) {
+      const el = b.getElement();
+      el.style.transition = `transform ${this.arrangeAnimationMs}ms ease`;
+      el.style.transform = '';
+      setTimeout(() => (el.style.transition = ''), this.arrangeAnimationMs + 80);
+    }
+  }
+
+  // Masonry-style auto arrange: pack blocks column-wise minimizing column heights
+  private arrangeMasonry(): void {
+    const cfg = this.grid.getConfig();
+    if (cfg.columns <= 0) return;
+    // 중첩 허용이면 수행하지 않음
+    if (this.allowOverlap) return;
+    const blocks = Array.from(this.blocks.values());
+    if (blocks.length === 0) return;
+
+    this.isArranging = true;
+    try {
+      // 안정적 순서를 위해 현재 순서(추가된 순서에 가깝게): y asc, x asc, id asc
+      const items = blocks
+        .map((b) => b)
+        .sort((a, b) => {
+          const ap = a.getData().position;
+          const bp = b.getData().position;
+          if (ap.y !== bp.y) return ap.y - bp.y;
+          if (ap.x !== bp.x) return ap.x - bp.x;
+          return a.getData().id.localeCompare(b.getData().id);
+        });
+
+      // 각 column의 누적 높이(y 시작값). 1-indexed column 기준.
+      const colHeights = new Array<number>(cfg.columns).fill(1);
+      // 각 row 라인별 최대 높이 계산을 돕기 위해, 실제 Masonry는 column 단위로 쌓음.
+
+      // 배치 제안 맵
+      const proposed = new Map<string, CoreTypes.GridPosition>();
+      let requiredBottom = 0;
+
+      for (const b of items) {
+        const d = b.getData();
+        const w = Math.min(d.size.width, cfg.columns); // 보정
+
+        const rowsCap = this.autoGrowRows ? Infinity : (cfg.rows ?? Infinity);
+        // 가능한 모든 시작 column 범위에서 최소 최댓값 높이를 선택
+        let bestX = -1;
+        let bestY = Number.MAX_SAFE_INTEGER;
+        for (let x = 1; x <= cfg.columns - w + 1; x++) {
+          // 해당 구간의 현재 최대 높이(가장 높은 column)
+          let segmentTop = 1;
+          for (let i = 0; i < w; i++) {
+            const idx = x - 1 + i;
+            const h = colHeights[idx] ?? 1;
+            segmentTop = Math.max(segmentTop, h);
+          }
+          // rows 상한을 넘기는 배치는 제외(상한이 있는 경우)
+          const endY = segmentTop + d.size.height - 1;
+          if (endY > rowsCap) continue;
+
+          if (segmentTop < bestY) {
+            bestY = segmentTop;
+            bestX = x;
+          }
+        }
+
+        // 배치 불가(상한 등) 시 현재 위치 유지 + 점유 상태 반영
+        if (bestX === -1) {
+          proposed.set(d.id, { ...d.position });
+          const bottom = d.position.y + d.size.height; // 다음 시작선
+          const x0 = Math.max(1, d.position.x);
+          const w0 = Math.min(d.size.width, cfg.columns - x0 + 1);
+          for (let i = 0; i < w0; i++) {
+            const idx = x0 - 1 + i;
+            colHeights[idx] = Math.max(colHeights[idx] ?? 1, bottom);
+          }
+          requiredBottom = Math.max(requiredBottom, d.position.y + d.size.height - 1);
+          continue;
+        }
+
+        const placeY = bestY;
+        proposed.set(d.id, { x: bestX, y: placeY, zIndex: d.position.zIndex });
+        const newHeight = placeY + d.size.height; // 다음 블록이 쌓일 시작선
+        for (let i = 0; i < w; i++) colHeights[bestX - 1 + i] = newHeight;
+        requiredBottom = Math.max(requiredBottom, placeY + d.size.height - 1);
       }
 
       // autoGrowRows: 필요한 경우 rows 확장
