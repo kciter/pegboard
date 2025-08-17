@@ -1,5 +1,5 @@
 import * as CoreTypes from './types';
-import { BlockExtension, AnyBlockExtension } from './BlockExtension';
+import { BlockExtension } from './BlockExtension';
 import { Block } from './Block';
 import { Grid } from './Grid';
 import { DragManager } from './DragManager';
@@ -13,15 +13,15 @@ export class Pegboard extends EventEmitter {
   private grid: Grid;
   private dragManager!: DragManager;
   private blocks: Map<string, Block> = new Map();
-  private extensions: Map<string, AnyBlockExtension> = new Map();
+  private extensions: Map<string, BlockExtension<any>> = new Map();
   private editable: boolean = true;
   private nextZIndex: number = 1;
   private allowOverlap: boolean;
   private lassoSelection: boolean = false;
   private keyboardMove: boolean = true;
   private keyboardDelete: boolean = false;
-  private autoGrowRows: boolean = false; // 새 옵션
-  private minRows: number | undefined; // 초기 rows를 최소값으로 보관
+  private autoGrowRows: boolean = false;
+  private minRows: number | undefined;
   private editingBlockId: string | null = null;
   private gridOverlayMode: CoreTypes.GridOverlayMode = 'always';
   private isInteractionActive: boolean = false; // move/resize 중 여부
@@ -244,10 +244,10 @@ export class Pegboard extends EventEmitter {
     this.grid.hideGridLines(this.container);
   }
 
-  registerExtension(extension: AnyBlockExtension): void {
+  registerExtension(extension: BlockExtension<any>): void {
     this.extensions.set(extension.type, extension);
     // If blocks of this type already exist, mark them as supporting edit mode when opted-in
-    const allow = (extension as any).allowEditMode;
+    const allow = extension.allowEditMode;
     if (allow) {
       for (const b of this.blocks.values()) {
         if (b.getData().type === extension.type) b.setSupportsEditMode(true);

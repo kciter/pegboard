@@ -1,5 +1,4 @@
-import { DragState, Position, GridSize, GridPosition, DragReflowStrategy } from './types';
-import { AnyBlockExtension } from './BlockExtension';
+import { DragState, GridSize, GridPosition, DragReflowStrategy } from './types';
 import { Block } from './Block';
 import { Grid } from './Grid';
 import { EventEmitter } from './EventEmitter';

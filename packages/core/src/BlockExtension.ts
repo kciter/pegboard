@@ -23,5 +23,3 @@ export abstract class BlockExtension<Attrs extends Record<string, any>> {
   onEnterEditMode?(data: BlockData<Attrs>, container: HTMLElement): void;
   onExitEditMode?(data: BlockData<Attrs>, container: HTMLElement): void;
 }
-
-export type AnyBlockExtension = BlockExtension<any>;

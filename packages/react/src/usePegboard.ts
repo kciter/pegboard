@@ -5,15 +5,15 @@ import {
   BlockData,
   GridConfig,
   EventCallback,
-  AnyBlockExtension,
   DragReflowStrategy,
   GridOverlayMode,
+  BlockExtension,
 } from '@pegboard/core';
 
 export interface UsePegboardOptions {
   grid: GridConfig;
   editable?: boolean; // default true
-  extensions?: AnyBlockExtension[];
+  extensions?: BlockExtension<any>[];
   allowOverlap?: boolean;
   // advanced options (applied at construction; instance 재생성 필요 시 의존성으로 사용)
   autoArrange?: boolean;
