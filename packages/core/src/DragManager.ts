@@ -655,6 +655,7 @@ export class DragManager extends EventEmitter {
           this.clearHintOverlay();
         } else {
           // 우선 reflow 커밋
+          let didCommit = false;
           if (this.pendingReflowPositions) {
             const moves: Array<{ block: Block; to: GridPosition; from: GridPosition }> = [];
             const movedSummary: Array<{ id: string; from: GridPosition; to: GridPosition }> = [];
@@ -666,6 +667,7 @@ export class DragManager extends EventEmitter {
               movedSummary.push({ id, from, to: { ...pos } });
             }
             this.commitWithFLIP(moves);
+            didCommit = true;
             // anchor moved 이벤트 유지
             this.emit('block:moved', {
               block: this.selectedBlock.getData(),
@@ -682,6 +684,7 @@ export class DragManager extends EventEmitter {
             const b = this.selectedBlock;
             const from = { ...b.getData().position };
             this.commitWithFLIP([{ block: b, to: this.pendingMoveGridPosition, from }]);
+            didCommit = true;
             this.emit('block:moved', {
               block: this.selectedBlock.getData(),
               oldPosition,
@@ -694,12 +697,16 @@ export class DragManager extends EventEmitter {
             });
             // reflow 시도 실패: 앵커 포함 드래그 프리뷰를 원위치로 복귀
             this.revertDragWithEasing();
+            // 하드 클리어(프리뷰 스타일 제거)
+            this.clearReflowLivePreview(true);
           } else {
             // reflow 미사용이거나 유효하지 않은 위치에서 드롭: 부드럽게 원위치로 복귀
             this.revertDragWithEasing();
+            // 하드 클리어(프리뷰 스타일 제거)
+            this.clearReflowLivePreview(true);
           }
-          // 라이브 프리뷰 정리 (스타일/transform을 즉시 제거)
-          this.clearReflowLivePreview(true);
+          // 커밋 성공 시에는 스타일을 건드리지 않고 id 세트만 비웁니다(FLIP 애니메이션 보존)
+          if (didCommit) this.reflowLivePreviewIds.clear();
           this.pendingMoveGridPosition = null;
           this.pendingReflowPositions = null;
           this.triedReflow = false;
@@ -1109,7 +1116,6 @@ export class DragManager extends EventEmitter {
       const b = this.getBlock(id);
       if (!b) continue;
       const el = b.getElement();
-      el.style.transform = '';
       el.classList.remove('pegboard-block-dragging');
     }
   }
