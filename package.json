@@ -19,8 +19,10 @@
     "format": "prettier --write ."
   },
   "devDependencies": {
+    "@chance/eslint": "^1.1.0",
     "esbuild": "^0.25.4",
     "eslint": "^9.27.0",
+    "eslint-plugin-cypress": "^5.1.1",
     "prettier": "^3.5.3",
     "tsup": "^8.5.0",
     "typescript": "^5.8.3",
