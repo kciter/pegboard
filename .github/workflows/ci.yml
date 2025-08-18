@@ -26,5 +26,7 @@ jobs:
           node-version: 22.5.1
           cache: 'pnpm'
 
+      - run: pnpm install --frozen-lockfile
+
       - name: build
         run: pnpm run build
