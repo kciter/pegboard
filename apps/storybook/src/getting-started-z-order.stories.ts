@@ -3,7 +3,7 @@ import { Pegboard } from '@pegboard/core';
 import { BoxBlock } from './blocks/box-block';
 
 const meta: Meta = {
-  title: 'Interactions/Z Order',
+  title: 'Getting Started/Z Order',
 };
 export default meta;
 
@@ -16,10 +16,6 @@ export const ZOrder: StoryObj = {
     toolbar.style.display = 'flex';
     toolbar.style.gap = '8px';
     toolbar.style.marginBottom = '8px';
-
-    const addBtn = document.createElement('button');
-    addBtn.textContent = 'Add Block';
-    addBtn.style.padding = '6px 10px';
 
     const frontBtn = document.createElement('button');
     frontBtn.textContent = 'Bring To Front';
@@ -41,7 +37,6 @@ export const ZOrder: StoryObj = {
     bwdBtn.style.padding = '6px 10px';
     bwdBtn.disabled = true;
 
-    toolbar.appendChild(addBtn);
     toolbar.appendChild(frontBtn);
     toolbar.appendChild(fwdBtn);
     toolbar.appendChild(bwdBtn);
@@ -85,14 +80,6 @@ export const ZOrder: StoryObj = {
         attributes: { text: `Layer ${i + 1}`, color: colors[i % colors.length] },
       });
     }
-
-    addBtn.onclick = () => {
-      pegboard.addBlock({
-        type: 'box',
-        size: { width: 3, height: 2 },
-        attributes: { text: 'New', color: `hsl(${Math.floor(Math.random() * 360)},70%,60%)` },
-      });
-    };
 
     frontBtn.onclick = () => {
       if (!selected) return;

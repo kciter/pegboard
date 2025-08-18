@@ -12,7 +12,7 @@ const meta: Meta<OverlapArgs> = {
     allowOverlap: { control: 'boolean' },
   },
   args: {
-    allowOverlap: false,
+    allowOverlap: true,
   },
 };
 export default meta;

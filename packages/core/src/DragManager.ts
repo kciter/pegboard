@@ -338,6 +338,8 @@ export class DragManager extends EventEmitter {
         this.lassoStart = null;
         this.lassoAdditive = false;
         this.lassoBaseSelection = null;
+        // 프리뷰 제거
+        this.clearHintOverlay();
         return; // 추가 이벤트 중복 방지
       }
     }
@@ -353,6 +355,8 @@ export class DragManager extends EventEmitter {
     this.lassoAdditive = false;
     this.lassoBaseSelection = null;
     this.emit('selection:changed', { ids: Array.from(this.selection) });
+    // 라쏘 종료 시 프리뷰 제거
+    this.clearHintOverlay();
   }
 
   private handleMouseMove(event: MouseEvent): void {
@@ -379,12 +383,12 @@ export class DragManager extends EventEmitter {
     }
     // store last pointer for cross-board drop
     this.lastPointer = { x: event.clientX, y: event.clientY };
-  if (this.dragState.dragType === 'move') {
+    if (this.dragState.dragType === 'move') {
       this.handleSmoothMove(event);
       // Cross-board hint preview
       const targetBoard = CrossBoardCoordinator.hitTest(event.clientX, event.clientY);
       const sourceBoard = CrossBoardCoordinator.getByContainer(this.container);
-    if (
+      if (
         targetBoard &&
         targetBoard !== sourceBoard &&
         (sourceBoard as any)?.getDragOutEnabled?.()
@@ -393,11 +397,11 @@ export class DragManager extends EventEmitter {
         const size = b.getData().size;
         const targetGrid: Grid | undefined = (targetBoard as any).grid;
         if (targetGrid) {
-      const targEl = (targetBoard as any).getContainer();
-      const tRect = targEl.getBoundingClientRect();
-      const adjustedX = event.clientX - (this.pointerDownOffset?.dx || 0);
-      const adjustedY = event.clientY - (this.pointerDownOffset?.dy || 0);
-      const pos = targetGrid.getGridPositionFromPixels({ x: adjustedX, y: adjustedY }, targEl);
+          const targEl = (targetBoard as any).getContainer();
+          const tRect = targEl.getBoundingClientRect();
+          const adjustedX = event.clientX - (this.pointerDownOffset?.dx || 0);
+          const adjustedY = event.clientY - (this.pointerDownOffset?.dy || 0);
+          const pos = targetGrid.getGridPositionFromPixels({ x: adjustedX, y: adjustedY }, targEl);
           const within = targetGrid.isValidGridPosition(pos, size);
           const allowOverlap = (targetBoard as any).getAllowOverlap?.() ?? false;
           let valid = within;
@@ -411,10 +415,10 @@ export class DragManager extends EventEmitter {
           }
           (targetBoard as any).showExternalHint?.(pos, size, valid);
           this.externalHintTarget = targetBoard;
-      // Prefer cross-board: don't keep a local pending move when hovering target
-      this.pendingMoveGridPosition = null;
-      // Hide local hint overlay to avoid confusion
-      this.clearHintOverlay();
+          // Prefer cross-board: don't keep a local pending move when hovering target
+          this.pendingMoveGridPosition = null;
+          // Hide local hint overlay to avoid confusion
+          this.clearHintOverlay();
         }
       } else if (this.externalHintTarget) {
         (this.externalHintTarget as any).clearExternalHint?.();
@@ -467,6 +471,39 @@ export class DragManager extends EventEmitter {
     } else if (this.selectedBlock && !this.selection.has(this.selectedBlock.getData().id)) {
       this.selectedBlock = null;
     }
+
+    // 선택된 블럭들의 전체 영역을 프리뷰로 표시(라쏘 중)
+    this.updateSelectionBoundingPreview();
+  }
+
+  // 라쏘 중 선택된 영역의 bounding box를 힌트 오버레이로 표시
+  private updateSelectionBoundingPreview(): void {
+    if (!this.isLassoSelecting) return; // 라쏘 진행 중에만 표시
+    if (this.selection.size <= 1) {
+      // 단일 또는 없음이면 프리뷰 제거
+      this.clearHintOverlay();
+      return;
+    }
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const id of this.selection) {
+      const b = this.getBlock(id);
+      if (!b) continue;
+      const d = b.getData();
+      minX = Math.min(minX, d.position.x);
+      minY = Math.min(minY, d.position.y);
+      maxX = Math.max(maxX, d.position.x + d.size.width - 1);
+      maxY = Math.max(maxY, d.position.y + d.size.height - 1);
+    }
+    if (!isFinite(minX) || !isFinite(minY) || !isFinite(maxX) || !isFinite(maxY)) {
+      this.clearHintOverlay();
+      return;
+    }
+    const bboxPos: GridPosition = { x: minX, y: minY, zIndex: 1 };
+    const bboxSize: GridSize = { width: maxX - minX + 1, height: maxY - minY + 1 };
+    this.updateHintOverlay(bboxPos, bboxSize, true);
   }
 
   // 부드러운 이동 처리 + 힌트 오버레이 업데이트
@@ -527,8 +564,45 @@ export class DragManager extends EventEmitter {
     }
 
     // 시각적 이동: transform 사용 (grid-position 즉시 변경 안함)
-    const deltaX = rawLeft - this.startBlockPixelPos.left;
-    const deltaY = rawTop - this.startBlockPixelPos.top;
+    let deltaX = rawLeft - this.startBlockPixelPos.left;
+    let deltaY = rawTop - this.startBlockPixelPos.top;
+
+    // 다중 선택 시, 모든 이동 대상 블럭이 컨테이너 밖으로 나가지 않도록 delta를 교집합으로 클램프
+    if (this.selection.size > 1) {
+      let minDX = -Infinity;
+      let maxDX = Infinity;
+      let minDY = -Infinity;
+      let maxDY = Infinity;
+      for (const id of this.selection) {
+        const b = this.getBlock(id);
+        if (!b) continue;
+        const d = b.getData();
+        if (d.movable === false) continue; // 고정 블럭은 제외
+        const start = this.groupStartPixelPos.get(id);
+        if (!start) continue;
+        const wPx =
+          d.size.width * (this.dragState.columnWidth || 0) +
+          Math.max(0, d.size.width - 1) * config.gap;
+        const hPx = d.size.height * config.rowHeight + Math.max(0, d.size.height - 1) * config.gap;
+        const blockMaxLeft = paddingLeft + Math.max(0, innerWidth - wPx);
+        const blockMaxTop = hasRowCap ? paddingTop + Math.max(0, innerHeight - hPx) : Infinity;
+        // 각 블럭 기준 허용 delta 범위
+        const thisMinDX = minLeft - start.left;
+        const thisMaxDX = blockMaxLeft - start.left;
+        const thisMinDY = minTop - start.top;
+        const thisMaxDY = (blockMaxTop === Infinity ? Infinity : blockMaxTop - start.top) as number;
+        minDX = Math.max(minDX, thisMinDX);
+        maxDX = Math.min(maxDX, thisMaxDX);
+        minDY = Math.max(minDY, thisMinDY);
+        maxDY = Math.min(maxDY, thisMaxDY);
+      }
+      // 교집합으로 delta 클램프
+      deltaX = Math.max(minDX, Math.min(maxDX, deltaX));
+      deltaY = Math.max(minDY, Math.min(maxDY, deltaY));
+      // 앵커 raw 좌표도 클램프된 delta 기준으로 보정하여 이후 스냅/후속 계산의 기준을 맞춤
+      rawLeft = this.startBlockPixelPos.left + deltaX;
+      rawTop = this.startBlockPixelPos.top + deltaY;
+    }
 
     const applyDraggingVisual = (b: Block, dxy: { dx: number; dy: number }) => {
       const el = b.getElement();
@@ -581,14 +655,15 @@ export class DragManager extends EventEmitter {
     const allowOverlap = this.getAllowOverlap ? this.getAllowOverlap() : false;
 
     if (this.selection.size > 1) {
-      // 그룹 유효성 검사: anchor 기준 delta 로 각 블록 적용
+      // 그룹 유효성 검사 및 Bounding Box 프리뷰 계산
       const deltaCol = candidate.x - this.startPosition.x;
       const deltaRow = candidate.y - this.startPosition.y;
       const allBlocks = this.getAllBlocks();
       const allBlocksData = allBlocks.map((b) => b.getData());
       const othersNonSelected = allBlocksData.filter((b) => !this.selection.has(b.id));
-      let groupValid = true;
-      const nextPositions = new Map<string, GridPosition>();
+
+      // 1) 모든 이동 대상의 예측 위치를 계산(유효성 무관)하여 bounding box 산출에 사용
+      const predictedPositions = new Map<string, GridPosition>();
       let groupRequiredBottom = 0;
       for (const id of this.selection) {
         const b = this.getBlock(id);
@@ -601,8 +676,16 @@ export class DragManager extends EventEmitter {
           y: Math.max(1, startPos.y + deltaRow),
           zIndex: startPos.zIndex,
         };
+        predictedPositions.set(id, targetPos);
         groupRequiredBottom = Math.max(groupRequiredBottom, targetPos.y + d.size.height - 1);
-        // 충돌 체크: 비선택 블럭과의 충돌 금지
+      }
+
+      // 2) 유효성 검사: 비선택 블럭과의 충돌 및 경계
+      let groupValid = true;
+      for (const [id, targetPos] of predictedPositions.entries()) {
+        const b = this.getBlock(id);
+        if (!b) continue;
+        const d = b.getData();
         const collidesWithOthers =
           !allowOverlap && this.grid.checkGridCollision(targetPos, d.size, d.id, othersNonSelected);
         const valid = this.grid.isValidGridPosition(targetPos, d.size) && !collidesWithOthers;
@@ -610,14 +693,43 @@ export class DragManager extends EventEmitter {
           groupValid = false;
           break;
         }
-        nextPositions.set(id, targetPos);
       }
+
+      // 3) autoGrow 처리
       if (autoGrow && groupRequiredBottom > (this.grid.getConfig().rows || 0)) {
         this.requestGrowRows && this.requestGrowRows(groupRequiredBottom);
       }
-      this.pendingGroupMovePositions = groupValid ? nextPositions : null;
-      // 힌트는 anchor 기준으로만 표시하되, groupValid 로 색 결정
-      this.updateHintOverlay(candidate, this.selectedBlock.getData().size, groupValid);
+
+      // 4) 커밋 후보 저장(유효할 때만)
+      this.pendingGroupMovePositions = groupValid ? predictedPositions : null;
+
+      // 5) Bounding box 힌트 표시: 선택된(이동 대상) 전체 영역의 min/max 사용
+      if (predictedPositions.size > 0) {
+        let minX = Infinity;
+        let minY = Infinity;
+        let maxX = -Infinity;
+        let maxY = -Infinity;
+        for (const [id, pos] of predictedPositions.entries()) {
+          const b = this.getBlock(id);
+          if (!b) continue;
+          const sz = b.getData().size;
+          minX = Math.min(minX, pos.x);
+          minY = Math.min(minY, pos.y);
+          maxX = Math.max(maxX, pos.x + sz.width - 1);
+          maxY = Math.max(maxY, pos.y + sz.height - 1);
+        }
+        if (isFinite(minX) && isFinite(minY) && isFinite(maxX) && isFinite(maxY)) {
+          const bboxPos: GridPosition = { x: minX, y: minY, zIndex: this.startPosition.zIndex };
+          const bboxSize: GridSize = { width: maxX - minX + 1, height: maxY - minY + 1 };
+          this.updateHintOverlay(bboxPos, bboxSize, groupValid);
+        } else {
+          // 폴백: 앵커 기준
+          this.updateHintOverlay(candidate, this.selectedBlock.getData().size, groupValid);
+        }
+      } else {
+        // 이동 대상 없음: 앵커 기준
+        this.updateHintOverlay(candidate, this.selectedBlock.getData().size, groupValid);
+      }
     } else {
       // 단일 이동: 충돌 기반 검증 또는 재배치 프리뷰
       const blockData = this.selectedBlock.getData();

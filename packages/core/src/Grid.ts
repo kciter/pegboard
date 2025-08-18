@@ -70,9 +70,9 @@ export class Grid {
       (innerWidth - this.config.gap * (this.config.columns - 1)) / this.config.columns;
     const effectiveRowHeight = this.config.rowHeight + this.config.gap;
 
-  // position은 viewport 좌표로 가정한다. 컨테이너 offset과 padding을 제거해 내부 좌표를 계산.
-  const relativeX = position.x - rect.left - paddingLeft;
-  const relativeY = position.y - rect.top - paddingTop;
+    // position은 viewport 좌표로 가정한다. 컨테이너 offset과 padding을 제거해 내부 좌표를 계산.
+    const relativeX = position.x - rect.left - paddingLeft;
+    const relativeY = position.y - rect.top - paddingTop;
 
     const x = Math.max(
       1,

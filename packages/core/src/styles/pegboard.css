@@ -96,7 +96,7 @@
   box-sizing: border-box;
   border: 2px dashed var(--pegboard-accent);
   background: color-mix(in oklab, var(--pegboard-accent) 15%, transparent);
-  z-index: 50;
+  z-index: 1; /* 핸들/블록 UI를 가리지 않도록 낮춤 */
 }
 .pegboard-hint-overlay.invalid {
   border-color: #ff4d4f;
