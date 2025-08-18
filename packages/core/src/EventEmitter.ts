@@ -1,4 +1,4 @@
-import { EventCallback, EventMap } from './types';
+import type { EventCallback, EventMap } from './types';
 
 export class EventEmitter {
   private listeners: Map<string, EventCallback[]> = new Map();
