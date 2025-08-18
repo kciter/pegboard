@@ -7,26 +7,24 @@ on:
     branches:
       - main
 jobs:
-  storybook:
+  ci:
     runs-on: ubuntu-20.04
     outputs:
       status: ${{ job.status }}
     steps:
-      - name: checkout repository
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
+      - uses: actions/checkout@v3
 
-      - name: cache dependencies
-        id: cache
-        uses: actions/cache@v3
+      - uses: pnpm/action-setup@v2
+        name: Install pnpm
+        id: pnpm-install
         with:
-          path: "**/node_modules"
-          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}-storybook
+          version: 9.5
+          run_install: false
 
-      - name: dependency install
-        if: steps.cache.outputs.cache-hit != 'true'
-        run: npm ci
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 22.5.1
+          cache: 'pnpm'
 
       - name: build
-        run: npm run build
+        run: pnpm run build
