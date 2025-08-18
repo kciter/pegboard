@@ -16,7 +16,8 @@
     "build:storybook": "pnpm -F storybook build",
     "clean": "pnpm -r run clean",
     "dev:storybook": "pnpm -F storybook dev",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "chromatic": "npx chromatic -t=chpt_d02501271d98b50 -b=build:storybook"
   },
   "devDependencies": {
     "esbuild": "^0.25.4",
