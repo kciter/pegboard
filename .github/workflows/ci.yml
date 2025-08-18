@@ -1,7 +1,11 @@
-name: Storybook Deployment
+name: Continuous Integration
 on:
-  workflow_dispatch:
-
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
 jobs:
   storybook:
     runs-on: ubuntu-20.04
@@ -24,10 +28,5 @@ jobs:
         if: steps.cache.outputs.cache-hit != 'true'
         run: npm ci
 
-      - name: publish to chromatic
-        id: chromatic
-        uses: chromaui/action@v1
-        with:
-          projectToken: ${{ secrets.CHROMATIC_TOKEN }}
-          token: ${{ secrets.GITHUB_TOKEN }}
-          buildScriptName: build:storybook
+      - name: build
+        run: npm run build
