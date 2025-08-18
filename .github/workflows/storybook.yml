@@ -1,0 +1,37 @@
+name: Storybook Deployment
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+jobs:
+  storybook:
+    runs-on: ubuntu-20.04
+    outputs:
+      status: ${{ job.status }}
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: cache dependencies
+        id: cache
+        uses: actions/cache@v3
+        with:
+          path: "**/node_modules"
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}-storybook
+
+      - name: depedency install
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: npm ci
+
+      - name: publish to chromatic
+        id: chromatic
+        uses: chromaui/action@v1
+        with:
+          projectToken: ${{ secrets.CHROMATIC_TOKEN }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          buildScriptName: build:storybook
