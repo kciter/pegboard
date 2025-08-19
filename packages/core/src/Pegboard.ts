@@ -2,16 +2,22 @@ import * as CoreTypes from './types';
 import { BlockExtension } from './BlockExtension';
 import { Block } from './Block';
 import { Grid } from './Grid';
+import { LayoutController } from './controllers/LayoutController';
+import { CommandExecutor } from './controllers/CommandExecutor';
 import { DragManager } from './DragManager';
 import { EventEmitter } from './EventEmitter';
 import { generateId, deepClone } from './utils';
 import { CrossBoardCoordinator } from './CrossBoardCoordinator';
+import { AddBlockCommand } from './tx/commands/AddBlockCommand';
+import { RemoveBlockCommand } from './tx/commands/RemoveBlockCommand';
 
 type PartialKeys<T, K extends keyof T> = Omit<T, K> & Partial<Pick<T, K>>;
 
 export class Pegboard extends EventEmitter {
   private container: HTMLElement;
   private grid: Grid;
+  private layout!: LayoutController;
+  private executor!: CommandExecutor;
   private dragManager!: DragManager;
   private blocks: Map<string, Block> = new Map();
   private extensions: Map<string, BlockExtension<any>> = new Map();
@@ -38,6 +44,8 @@ export class Pegboard extends EventEmitter {
 
     this.container = config.container;
     this.grid = new Grid(config.grid);
+    this.layout = new LayoutController(this.grid);
+  this.executor = new CommandExecutor(this.container);
     // this.editable = config.editable ?? true;
     this.allowOverlap = config.allowOverlap ?? false;
     this.lassoSelection = config.lassoSelection ?? false;
@@ -76,7 +84,7 @@ export class Pegboard extends EventEmitter {
     }
 
     // 기본 스타일은 JS에서 강제하지 않음 (headless)
-    this.grid.applyGridStyles(this.container);
+    this.layout.applyGridStyles(this.container);
   }
 
   private setupDragManager(): void {
@@ -98,8 +106,8 @@ export class Pegboard extends EventEmitter {
         const minBase = Math.max(this.minRows || 0, cfg.rows || 0);
         const next = Math.max(rows | 0, minBase);
         if (!cfg.rows || cfg.rows < next) {
-          this.grid.updateConfig({ rows: next });
-          this.grid.applyGridStyles(this.container);
+          this.layout.updateConfig({ rows: next } as any);
+          this.layout.applyGridStyles(this.container);
           if (this.editable) this.showGridLines();
           this.emit('grid:changed', { grid: this.grid.getConfig() });
         }
@@ -307,6 +315,24 @@ export class Pegboard extends EventEmitter {
   addBlock<Attrs extends Record<string, any>>(
     data: PartialKeys<CoreTypes.BlockData<Attrs>, 'id' | 'attributes'>,
   ): string {
+    const cmd = new AddBlockCommand(() => this.addBlockInternal(data as any));
+    const results = this.executor.runSync([cmd], 'none');
+    if (!results || results.length === 0 || !results[0]?.ok) {
+      throw new Error(results?.[0]?.reason || 'Add block failed');
+    }
+    return results[0]!.reason as string;
+  }
+
+  removeBlock(id: string): boolean {
+  const cmd = new RemoveBlockCommand(() => this.removeBlockInternal(id));
+  const results = this.executor.runSync([cmd], 'none');
+  return !!(results && results[0]?.ok);
+  }
+
+  // 내부 구현: 커맨드에서 호출하는 실 구현부
+  private addBlockInternal<Attrs extends Record<string, any>>(
+    data: PartialKeys<CoreTypes.BlockData<Attrs>, 'id' | 'attributes'>,
+  ): string {
     const extension = this.extensions.get(data.type);
     if (!extension) {
       throw new Error(`Extension not found for block type: ${data.type}`);
@@ -339,7 +365,7 @@ export class Pegboard extends EventEmitter {
       x: data.position.x,
       y: data.position.y,
       zIndex: data.position.zIndex ?? this.nextZIndex,
-    };
+    } as CoreTypes.GridPosition;
 
     let finalPosition: CoreTypes.GridPosition;
 
@@ -415,7 +441,7 @@ export class Pegboard extends EventEmitter {
     return blockData.id;
   }
 
-  removeBlock(id: string): boolean {
+  private removeBlockInternal(id: string): boolean {
     const block = this.blocks.get(id);
     if (!block) return false;
 

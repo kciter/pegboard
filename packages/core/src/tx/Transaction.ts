@@ -52,6 +52,8 @@ export class Transaction {
         if (plan.changes) aggregatedChanges.push(...plan.changes);
       }
       if (aggregatedMoves.length === 0 && aggregatedChanges.length === 0) {
+        // No visual work to animate; just execute commands' commit
+        for (const cmd of this.commands) cmd.commit(ctx);
         this.clear();
         return;
       }
