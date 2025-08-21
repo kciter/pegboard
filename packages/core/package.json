@@ -20,11 +20,16 @@
           "types": "./dist/index.d.ts",
           "default": "./dist/index.js"
         }
+      },
+      "./styles": {
+        "import": "./src/styles/index.css",
+        "require": "./src/styles/index.css"
       }
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "src/styles"
   ],
   "sideEffects": false,
   "scripts": {

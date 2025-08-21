@@ -40,6 +40,8 @@ export class Block {
 
     handles.forEach((className) => {
       const handle = createElement('div', className, this.element);
+      // 공통 클래스 추가로 이벤트 감지가 쉽도록
+      handle.classList.add('pegboard-resize-handle');
       // 스타일은 CSS에서
       this.positionResizeHandle(handle, className);
       this.resizeHandles.push(handle);
@@ -62,7 +64,7 @@ export class Block {
     const gridRowValue = `${position.y} / span ${size.height}`;
     this.element.style.setProperty('grid-column', gridColumnValue, 'important');
     this.element.style.setProperty('grid-row', gridRowValue, 'important');
-    this.element.style.setProperty('z-index', position.zIndex.toString(), 'important');
+    this.element.style.setProperty('z-index', (position.zIndex || 1).toString(), 'important');
   }
 
   setPosition(position: GridPosition): void {

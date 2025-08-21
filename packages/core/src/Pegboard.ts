@@ -1,647 +1,406 @@
-import * as CoreTypes from './types';
-import { BlockExtension } from './BlockExtension';
+import type * as CoreTypes from './types';
+import type { BlockExtension } from './BlockExtension';
 import { Block } from './Block';
 import { Grid } from './Grid';
-import { LayoutController } from './controllers/LayoutController';
-import { CommandExecutor } from './controllers/CommandExecutor';
-import { DragManager } from './DragManager';
 import { EventEmitter } from './EventEmitter';
 import { generateId, deepClone } from './utils';
 import { CrossBoardCoordinator } from './CrossBoardCoordinator';
-import { AddBlockCommand } from './tx/commands/AddBlockCommand';
-import { RemoveBlockCommand } from './tx/commands/RemoveBlockCommand';
+
+// 새로운 Manager들
+import { StateManager } from './state';
+import { ConfigManager } from './config';
+import { BlockManager } from './managers';
+import { SelectionManager } from './managers';
+import { PreviewManager } from './managers';
+import { TransitionManager } from './managers';
+
+// 새로운 Event 시스템
+import {
+  UIEventListener,
+  SelectionHandler,
+  KeyboardHandler,
+  LassoHandler,
+  DragHandler,
+} from './events';
+
+// 새로운 Operations & Commands 시스템
+import { CommandRunner } from './operations/CommandRunner';
+import {
+  AddBlockCommand,
+  DeleteSelectedCommand,
+  DuplicateBlockCommand,
+  MoveBlocksCommand,
+  SelectByCriteriaCommand,
+  ClearSelectionCommand,
+  BringToFrontCommand,
+  SendToBackCommand,
+  SetZIndexCommand,
+  ArrangeZOrderCommand,
+  AutoArrangeCommand,
+  ReflowCommand,
+} from './operations/commands';
+
+// Legacy imports removed - using new architecture
 
 type PartialKeys<T, K extends keyof T> = Omit<T, K> & Partial<Pick<T, K>>;
 
+/**
+ * Pegboard: 오케스트레이터 패턴을 적용한 새로운 Pegboard 구현
+ * 각 Manager들을 조율하여 복잡한 기능을 제공
+ */
 export class Pegboard extends EventEmitter {
-  private container: HTMLElement;
+  // Core Managers
+  private stateManager: StateManager;
+  private configManager: ConfigManager;
+  private blockManager: BlockManager;
+  private selectionManager: SelectionManager;
+  private previewManager: PreviewManager;
+  private transitionManager: TransitionManager;
+
+  // Event System
+  private uiEventListener: UIEventListener;
+  private selectionHandler: SelectionHandler;
+  private keyboardHandler: KeyboardHandler;
+  private lassoHandler: LassoHandler;
+  private dragHandler: DragHandler;
+
+  // Command/Operation System
+  private commandRunner: CommandRunner;
+
+  // Core Grid (still used)
   private grid: Grid;
-  private layout!: LayoutController;
-  private executor!: CommandExecutor;
-  private dragManager!: DragManager;
-  private blocks: Map<string, Block> = new Map();
-  private extensions: Map<string, BlockExtension<any>> = new Map();
-  private editable: boolean = true;
-  private nextZIndex: number = 1;
-  private allowOverlap: boolean;
-  private lassoSelection: boolean = false;
-  private keyboardMove: boolean = true;
-  private keyboardDelete: boolean = false;
-  private autoGrowRows: boolean = false;
-  private minRows: number | undefined;
-  private editingBlockId: string | null = null;
-  private gridOverlayMode: CoreTypes.GridOverlayMode = 'always';
-  private isInteractionActive: boolean = false; // move/resize 중 여부
-  private dragReflow: CoreTypes.DragReflowStrategy = 'none';
-  private autoArrange: boolean = false;
-  private autoArrangeStrategy: CoreTypes.AutoArrangeStrategy = 'top-left';
-  private arrangeAnimationMs: number = 160;
-  private isArranging: boolean = false;
-  private dragOut: boolean = false;
+
+  // Convenience getters for external access
+  private container: HTMLElement;
+
+  // Auto grow rows 최적화를 위한 캐시
+  private lastMaxUsedRow = 0;
+  private gridUpdateTimeout: number | null = null;
 
   constructor(config: CoreTypes.PegboardConfig) {
     super();
 
     this.container = config.container;
+
+    // 1. Grid 초기화 (기존 유지)
     this.grid = new Grid(config.grid);
-    this.layout = new LayoutController(this.grid);
-  this.executor = new CommandExecutor(this.container);
-    // this.editable = config.editable ?? true;
-    this.allowOverlap = config.allowOverlap ?? false;
-    this.lassoSelection = config.lassoSelection ?? false;
-    this.keyboardMove = config.keyboardMove ?? false;
-    this.keyboardDelete = config.keyboardDelete ?? false;
-    this.autoGrowRows = config.autoGrowRows ?? false;
-    this.minRows = config.grid.rows; // 지정되었으면 최소로 기억
-    this.gridOverlayMode = config.gridOverlayMode ?? 'always';
-    this.dragReflow = config.dragReflow ?? 'none';
-    this.autoArrange = config.autoArrange ?? false;
-    this.autoArrangeStrategy = config.autoArrangeStrategy ?? 'top-left';
-    this.arrangeAnimationMs = config.arrangeAnimationMs ?? 160;
-    // cross-board drag option
-    this.dragOut = !!(config as any).dragOut;
 
-    // autoGrowRows일 때는 검증 단계에서 rows 상한을 넘는 배치도 임시 허용하도록 Grid에 힌트
-    (this.grid as any).setUnboundedRows?.(this.autoGrowRows);
+    // 2. StateManager 초기화
+    this.stateManager = new StateManager(
+      config.grid, 
+      undefined, 
+      { editable: config.editable }
+    );
 
+    // 3. ConfigManager 초기화
+    this.configManager = new ConfigManager(config);
+
+    // 4. BlockManager 초기화
+    this.blockManager = new BlockManager(
+      this.container,
+      this.grid,
+      () => this.configManager.getInteractionConfig().allowOverlap,
+    );
+
+    // 5. SelectionManager 초기화
+    this.selectionManager = new SelectionManager(
+      (id: string) => this.blockManager.getBlockInstance(id),
+      () => this.blockManager.getAllBlockInstances(),
+    );
+
+    // 6. PreviewManager 초기화
+    this.previewManager = new PreviewManager(this.container);
+
+    // 7. TransitionManager 초기화
+    this.transitionManager = new TransitionManager(
+      this.container,
+      this.configManager.getVisualConfig().transitionConfig,
+    );
+
+    // 8. CommandRunner 초기화
+    this.commandRunner = new CommandRunner({
+      blockManager: this.blockManager,
+      selectionManager: this.selectionManager,
+      grid: this.grid,
+    });
+
+    // 9. UIEventListener 시스템 초기화 (생성자 내에서 직접 초기화)
+    // 9-1. SelectionHandler 초기화
+    this.selectionHandler = new SelectionHandler(this.selectionManager);
+
+    // 9-2. KeyboardHandler 초기화
+    this.keyboardHandler = new KeyboardHandler(this.selectionHandler, this.blockManager, () => ({
+      keyboardMove: this.getKeyboardMove(),
+      keyboardDelete: this.getKeyboardDelete(),
+    }));
+
+    // 9-3. LassoHandler 초기화
+    this.lassoHandler = new LassoHandler(this.container, this.selectionHandler, () =>
+      this.blockManager.getAllBlockInstances(),
+    );
+
+    // 9-4. DragHandler 초기화
+    this.dragHandler = new DragHandler(
+      this.container,
+      this.blockManager,
+      this.selectionHandler,
+      this.grid,
+      () => ({
+        allowOverlap: this.getAllowOverlap(),
+        dragReflow: this.configManager.getBehaviorConfig().dragReflow !== 'none',
+      }),
+      (anchorBlockId: string, newPosition: any, strategy?: any) =>
+        this.reflow(anchorBlockId, newPosition, strategy),
+      (blockId: string, from: any, to: any) => this.moveBlockWithTransition(blockId, from, to),
+      (blockId: string, originalPosition: any) =>
+        this.rollbackBlockWithTransition(blockId, originalPosition),
+    );
+
+    // 9-5. UIEventListener 초기화 및 핸들러 등록
+    this.uiEventListener = new UIEventListener(
+      this.container,
+      (id: string) => this.blockManager.getBlockInstance(id),
+      () => this.blockManager.getAllBlockInstances(),
+      () => this.clearSelection(),
+    );
+
+    this.uiEventListener.setSelectionHandler(this.selectionHandler);
+    this.uiEventListener.setKeyboardHandler(this.keyboardHandler);
+    this.uiEventListener.setLassoHandler(this.lassoHandler);
+    this.uiEventListener.setDragHandler(this.dragHandler);
+
+    // 9-6. 이벤트 리스너 연결
+    this.setupEventSystemListeners();
+
+    // 9-7. 이벤트 시스템 활성화
+    this.uiEventListener.enable();
+
+    // 10. 컨테이너 초기 설정
     this.setupContainer();
-    this.setupDragManager();
-    this.setupEditModeHandlers();
-    this.setEditable(config.editable ?? true);
 
-    // 초기 rows 자동 보정(초기 블록이 있다면)
-    this.recomputeRowsIfNeeded();
-    // 초기 자동 배치
-    this.autoArrangeIfEnabled();
-    // Register to cross-board coordinator
+    // 11. 이벤트 연결
+    this.setupEventListeners();
+
+    // 12. 초기 설정 적용
+    this.applyInitialSettings();
+
+    // 13. Cross-board 등록
     CrossBoardCoordinator.register(this as any);
   }
 
-  private setupContainer(): void {
-    // 기존 스타일은 유지하면서 필요한 클래스만 추가
-    if (!this.container.classList.contains('pegboard-container')) {
-      this.container.classList.add('pegboard-container');
-    }
+  // =============================================================================
+  // Public API - 기존 Pegboard와 호환성 유지
+  // =============================================================================
 
-    // 기본 스타일은 JS에서 강제하지 않음 (headless)
-    this.layout.applyGridStyles(this.container);
-  }
-
-  private setupDragManager(): void {
-    this.dragManager = new DragManager(
-      this.container,
-      this.grid,
-      (id: string) => this.blocks.get(id),
-      () => Array.from(this.blocks.values()),
-      () => this.allowOverlap,
-      () => this.lassoSelection,
-      () => this.keyboardMove,
-      () => this.keyboardDelete,
-      (ids: string[]) => ids.forEach((id) => this.removeBlock(id)),
-      () => this.autoGrowRows,
-      (rows: number) => {
-        if (!this.autoGrowRows) return;
-        const cfg = this.grid.getConfig();
-        // baseline: 최초 입력 받은 rows(=this.minRows)와 현재 설정 rows 중 큰 값을 최소로 유지
-        const minBase = Math.max(this.minRows || 0, cfg.rows || 0);
-        const next = Math.max(rows | 0, minBase);
-        if (!cfg.rows || cfg.rows < next) {
-          this.layout.updateConfig({ rows: next } as any);
-          this.layout.applyGridStyles(this.container);
-          if (this.editable) this.showGridLines();
-          this.emit('grid:changed', { grid: this.grid.getConfig() });
-        }
-      },
-      () => this.dragReflow,
-    );
-
-    this.dragManager.on('block:moved', ({ block, oldPosition }) => {
-      this.emit('block:moved', { block, oldPosition });
-      // 드래그 종료 후 다음 프레임에 자동 정렬 및 rows 보정 실행
-      requestAnimationFrame(() => {
-        this.autoArrangeIfEnabled();
-        this.recomputeRowsIfNeeded();
-        // 드래그 종료로 간주: 인터랙션 비활성화, overlay 갱신
-        this.isInteractionActive = false;
-        this.showGridLines();
-      });
-    });
-
-    this.dragManager.on('block:resized', ({ block, oldSize }) => {
-      this.emit('block:resized', { block, oldSize });
-      requestAnimationFrame(() => {
-        this.autoArrangeIfEnabled();
-        this.recomputeRowsIfNeeded();
-        this.isInteractionActive = false;
-        this.showGridLines();
-      });
-    });
-    this.dragManager.on('block:selected', ({ block }) => {
-      this.emit('block:selected', { block });
-    });
-    this.dragManager.on('selection:changed', ({ ids }) => {
-      this.emit('selection:changed', { ids });
-    });
-
-    // 인터랙션 시작/종료에 따라 overlay 토글 (active 모드 전용)
-    this.dragManager.on('interaction:active', () => {
-      if (!this.editable) return;
-      if (this.gridOverlayMode !== 'active') return;
-      this.isInteractionActive = true;
-      this.showGridLines();
-    });
-    this.dragManager.on('interaction:idle', () => {
-      if (!this.editable) return;
-      if (this.gridOverlayMode !== 'active') return;
-      this.isInteractionActive = false;
-      this.showGridLines();
-    });
-  }
-
-  // Edit mode: enter via double-click, exit via outside click or API
-  private setupEditModeHandlers(): void {
-    // delegate dblclick on block
-    this.container.addEventListener('dblclick', (e) => {
-      const target = e.target as HTMLElement;
-      const blockEl = target.closest('.pegboard-block') as HTMLElement | null;
-      if (!blockEl) return;
-      const id = blockEl.dataset.blockId;
-      if (!id) return;
-      const block = this.blocks.get(id);
-      if (!block) return;
-      const ext = this.extensions.get(block.getData().type);
-      if (!ext || !(ext as any).allowEditMode) return; // not opt-in
-      this.enterBlockEditMode(id);
-    });
-
-    // click outside exits edit mode (capture to run before container handlers)
-    document.addEventListener(
-      'mousedown',
-      (e) => {
-        if (!this.editingBlockId) return;
-        const target = e.target as HTMLElement;
-        const block = this.blocks.get(this.editingBlockId!);
-        if (!block) return;
-        const blockEl = block.getElement();
-        if (blockEl.contains(target)) return; // inside
-        this.exitBlockEditMode();
-      },
-      true,
-    );
-  }
-
-  getEditingBlockId(): string | null {
-    return this.editingBlockId;
-  }
-
-  enterBlockEditMode(id: string): boolean {
-    const block = this.blocks.get(id);
-    if (!block) return false;
-    const ext = this.extensions.get(block.getData().type) as any;
-    if (!ext || !ext.allowEditMode) return false;
-    // 이미 편집 중이면 동일 id면 OK, 다르면 교체
-    if (this.editingBlockId && this.editingBlockId !== id) {
-      this.exitBlockEditMode();
-    }
-    this.editingBlockId = id;
-    // 편집 모드 동안 이동/리사이즈를 사실상 비활성화 (키보드 등 포함)
-    block.setEditing(true);
-    this.dragManager.selectBlock(block); // 포커스 동기화
-    // notify extension
-    ext.onEnterEditMode?.(block.getData() as any, block.getContentElement());
-    this.emit('block:edit:entered', { block: block.getData() });
-    return true;
-  }
-
-  exitBlockEditMode(): boolean {
-    if (!this.editingBlockId) return false;
-    const block = this.blocks.get(this.editingBlockId);
-    if (!block) {
-      this.editingBlockId = null;
-      return false;
-    }
-    const ext = this.extensions.get(block.getData().type) as any;
-    block.setEditing(false);
-    ext?.onExitEditMode?.(block.getData() as any, block.getContentElement());
-    this.emit('block:edit:exited', { block: block.getData() });
-    this.editingBlockId = null;
-    return true;
-  }
-
-  toggleBlockEditMode(id: string): boolean {
-    if (this.editingBlockId === id) return this.exitBlockEditMode();
-    return this.enterBlockEditMode(id);
-  }
-
-  private showGridLines(): void {
-    // editable=false면 표시 금지
-    if (!this.editable) return;
-    // 'never' 모드는 표시 안 함
-    if (this.gridOverlayMode === 'never') {
-      this.grid.hideGridLines(this.container);
-      return;
-    }
-    // 'active' 모드는 move/resize 중에만 표시
-    if (this.gridOverlayMode === 'active') {
-      if (this.isInteractionActive) {
-        this.grid.renderGridLines(this.container);
-      } else {
-        this.grid.hideGridLines(this.container);
-      }
-      return;
-    }
-    // 'always'
-    this.grid.renderGridLines(this.container);
-  }
-
-  private hideGridLines(): void {
-    this.grid.hideGridLines(this.container);
-  }
-
-  registerExtension(extension: BlockExtension<any>): void {
-    this.extensions.set(extension.type, extension);
-    // If blocks of this type already exist, mark them as supporting edit mode when opted-in
-    const allow = extension.allowEditMode;
-    if (allow) {
-      for (const b of this.blocks.values()) {
-        if (b.getData().type === extension.type) b.setSupportsEditMode(true);
-      }
-    }
-  }
-
-  unregisterExtension(type: string): void {
-    this.extensions.delete(type);
-  }
-
-  // 요청 위치 주변에서 가장 가까운 유효한 위치 탐색(없으면 null)
-  private findNearestAvailablePosition(
-    start: CoreTypes.GridPosition,
-    size: CoreTypes.GridSize,
-    existingBlocks: { id: string; position: CoreTypes.GridPosition; size: CoreTypes.GridSize }[],
-  ): CoreTypes.GridPosition | null {
-    const cfg = this.grid.getConfig();
-    const maxRows = cfg.rows && cfg.rows > 0 ? cfg.rows : 100;
-
-    const isFree = (pos: CoreTypes.GridPosition) => {
-      return (
-        this.grid.isValidGridPosition(pos, size) &&
-        !this.grid.checkGridCollision(pos, size, '', existingBlocks)
-      );
-    };
-
-    // r=0은 시작점
-    if (isFree(start)) return { x: start.x, y: start.y, zIndex: 1 };
-
-    const maxRadius = (cfg.columns + (maxRows as number)) * 2; // 충분히 큰 탐색 반경
-    for (let r = 1; r <= maxRadius; r++) {
-      // 상하 라인 스캔
-      for (let dx = -r; dx <= r; dx++) {
-        const top: CoreTypes.GridPosition = { x: start.x + dx, y: start.y - r, zIndex: 1 };
-        const bottom: CoreTypes.GridPosition = { x: start.x + dx, y: start.y + r, zIndex: 1 };
-        if (isFree(top)) return top;
-        if (isFree(bottom)) return bottom;
-      }
-      // 좌우 라인 스캔 (코너 중복 제외 위해 dy는 -r+1..r-1)
-      for (let dy = -r + 1; dy <= r - 1; dy++) {
-        const left: CoreTypes.GridPosition = { x: start.x - r, y: start.y + dy, zIndex: 1 };
-        const right: CoreTypes.GridPosition = { x: start.x + r, y: start.y + dy, zIndex: 1 };
-        if (isFree(left)) return left;
-        if (isFree(right)) return right;
-      }
-    }
-    return null;
-  }
-
-  addBlock<Attrs extends Record<string, any>>(
+  // 블록 관리 - Command/Operation 시스템 사용
+  async addBlock<Attrs extends Record<string, any>>(
     data: PartialKeys<CoreTypes.BlockData<Attrs>, 'id' | 'attributes'>,
-  ): string {
-    const cmd = new AddBlockCommand(() => this.addBlockInternal(data as any));
-    const results = this.executor.runSync([cmd], 'none');
-    if (!results || results.length === 0 || !results[0]?.ok) {
-      throw new Error(results?.[0]?.reason || 'Add block failed');
+  ): Promise<string> {
+    const command = new AddBlockCommand(data);
+    const result = await this.commandRunner.execute(command);
+
+    if (!result.success) {
+      throw new Error(result.error || 'Add block failed');
     }
-    return results[0]!.reason as string;
+
+    // Auto arrange 트리거 (활성화된 경우)
+    const behaviorConfig = this.configManager.getBehaviorConfig();
+    if (behaviorConfig.autoArrange) {
+      setTimeout(() => {
+        this.autoArrange(behaviorConfig.autoArrangeStrategy).catch((error) => {
+          console.warn('Auto arrange after add block failed:', error);
+        });
+      }, 0);
+    }
+
+    // Command 결과에서 생성된 블록 ID 추출
+    return result.data?.blockId || '';
   }
 
-  removeBlock(id: string): boolean {
-  const cmd = new RemoveBlockCommand(() => this.removeBlockInternal(id));
-  const results = this.executor.runSync([cmd], 'none');
-  return !!(results && results[0]?.ok);
-  }
+  async removeBlock(id: string): Promise<boolean> {
+    // 해당 블록을 먼저 선택한 후 DeleteSelectedCommand 사용
+    this.selectionManager.selectSingle(id);
 
-  // 내부 구현: 커맨드에서 호출하는 실 구현부
-  private addBlockInternal<Attrs extends Record<string, any>>(
-    data: PartialKeys<CoreTypes.BlockData<Attrs>, 'id' | 'attributes'>,
-  ): string {
-    const extension = this.extensions.get(data.type);
-    if (!extension) {
-      throw new Error(`Extension not found for block type: ${data.type}`);
-    }
+    const command = new DeleteSelectedCommand();
+    const result = await this.commandRunner.execute(command);
 
-    const existingBlocks = Array.from(this.blocks.values()).map((b) => b.getData());
-
-    const layout = data.constraints;
-    const initialSize = data.size;
-    let clampedSize = { ...initialSize };
-    // 1) 플러그인 제약(min/max) 우선 적용
-    if (layout) {
-      const clamp = (val: number, min?: number, max?: number) => {
-        if (min !== undefined) val = Math.max(min, val);
-        if (max !== undefined) val = Math.min(max, val);
-        return val;
-      };
-      clampedSize.width = clamp(clampedSize.width, layout.minWidth, layout.maxWidth);
-      clampedSize.height = clamp(clampedSize.height, layout.minHeight, layout.maxHeight);
-    }
-    // 2) 그리드 경계에 맞춰 추가 클램프 (너비는 columns, 높이는 rows cap이 있는 경우에 한해)
-    const cfg = this.grid.getConfig();
-    clampedSize.width = Math.max(1, Math.min(clampedSize.width, cfg.columns));
-    if (cfg.rows && cfg.rows > 0) {
-      clampedSize.height = Math.max(1, Math.min(clampedSize.height, cfg.rows));
-    }
-
-    // 요청된/기본 시작 위치 결정
-    const requestedPosition = {
-      x: data.position.x,
-      y: data.position.y,
-      zIndex: data.position.zIndex ?? this.nextZIndex,
-    } as CoreTypes.GridPosition;
-
-    let finalPosition: CoreTypes.GridPosition;
-
-    if (this.allowOverlap) {
-      // 중첩 허용이면 그대로 배치(경계는 isValidGridPosition으로만 확인)
-      if (!this.grid.isValidGridPosition(requestedPosition, clampedSize)) {
-        // 요청 위치가 유효하지 않으면 주변 탐색
-        const near = this.findNearestAvailablePosition(
-          requestedPosition,
-          clampedSize,
-          existingBlocks,
-        );
-        if (!near) throw new Error('No available position');
-        finalPosition = near;
-      } else {
-        finalPosition = requestedPosition;
-      }
-    } else {
-      const noCollision =
-        this.grid.isValidGridPosition(requestedPosition, clampedSize) &&
-        !this.grid.checkGridCollision(requestedPosition, clampedSize, '', existingBlocks);
-      if (noCollision) {
-        finalPosition = requestedPosition;
-      } else {
-        const near = this.findNearestAvailablePosition(
-          requestedPosition,
-          clampedSize,
-          existingBlocks,
-        );
-        if (!near) throw new Error('No available position');
-        finalPosition = near;
+    // Auto arrange 트리거 (활성화된 경우)
+    if (result.success) {
+      const behaviorConfig = this.configManager.getBehaviorConfig();
+      if (behaviorConfig.autoArrange) {
+        setTimeout(() => {
+          this.autoArrange(behaviorConfig.autoArrangeStrategy).catch((error) => {
+            console.warn('Auto arrange after remove block failed:', error);
+          });
+        }, 0);
       }
     }
 
-    const blockData: CoreTypes.BlockData = {
-      id: data.id || generateId(),
-      type: data.type || 'default',
-      position: {
-        x: finalPosition.x,
-        y: finalPosition.y,
-        zIndex:
-          data.position && data.position.zIndex !== undefined
-            ? data.position.zIndex
-            : this.nextZIndex++,
-      },
-      size: clampedSize,
-      constraints: data.constraints,
-      attributes: { ...(extension?.defaultAttributes || {}), ...(data.attributes || {}) },
-      movable: data.movable,
-      resizable: data.resizable,
-    };
-
-    const block = new Block(blockData);
-    block.setEditable(this.editable);
-    // Opt-in edit mode support (stored on block for quick checks)
-    const ext = this.extensions.get(blockData.type) as any;
-    block.setSupportsEditMode(!!ext?.allowEditMode);
-
-    this.blocks.set(blockData.id, block);
-    this.container.appendChild(block.getElement());
-
-    if (extension) {
-      extension.onCreate?.(blockData as any, block.getContentElement(), this.editable);
-      extension.onBeforeRender?.(blockData as any, block.getContentElement(), this.editable);
-      extension.render(blockData as any, block.getContentElement(), this.editable);
-      extension.onAfterRender?.(blockData as any, block.getContentElement(), this.editable);
-    }
-
-    this.emit('block:added', { block: blockData });
-    // rows 자동 재계산
-    this.autoArrangeIfEnabled();
-    this.recomputeRowsIfNeeded();
-    return blockData.id;
-  }
-
-  private removeBlockInternal(id: string): boolean {
-    const block = this.blocks.get(id);
-    if (!block) return false;
-
-    // If currently editing this block, exit edit mode first
-    if (this.editingBlockId === id) {
-      this.exitBlockEditMode();
-    }
-
-    if (this.dragManager.getSelectedBlock() === block) {
-      this.dragManager.selectBlock(null);
-    }
-
-    const extension = this.extensions.get(block.getData().type);
-    if (extension) {
-      extension.onDestroy?.(block.getData() as any);
-    }
-
-    block.destroy();
-    this.blocks.delete(id);
-
-    this.emit('block:removed', { blockId: id });
-    this.autoArrangeIfEnabled();
-    this.recomputeRowsIfNeeded();
-    return true;
+    return result.success;
   }
 
   updateBlock(id: string, updates: Partial<CoreTypes.BlockData>): boolean {
-    const block = this.blocks.get(id);
-    if (!block) return false;
-
-    const currentData = block.getData();
-    const newData = { ...currentData, ...updates } as CoreTypes.BlockData;
-
-    if (updates.position) {
-      const existingBlocks = Array.from(this.blocks.values())
-        .map((b) => b.getData())
-        .filter((b) => b.id !== id);
-
-      const noCollision =
-        this.allowOverlap ||
-        !this.grid.checkGridCollision(updates.position, currentData.size, id, existingBlocks);
-      if (noCollision && this.grid.isValidGridPosition(updates.position, currentData.size)) {
-        block.setPosition({
-          ...updates.position,
-          zIndex: updates.position.zIndex ?? currentData.position.zIndex,
-        });
-      }
-    }
-
-    if (updates.size) {
-      const existingBlocks = Array.from(this.blocks.values())
-        .map((b) => b.getData())
-        .filter((b) => b.id !== id);
-
-      const layout = updates.constraints ?? currentData.constraints;
-      let candidateSize = { ...updates.size };
-      // 1) 플러그인 제약(min/max)
-      if (layout) {
-        if (layout.minWidth !== undefined)
-          candidateSize.width = Math.max(layout.minWidth, candidateSize.width);
-        if (layout.minHeight !== undefined)
-          candidateSize.height = Math.max(layout.minHeight, candidateSize.height);
-        if (layout.maxWidth !== undefined)
-          candidateSize.width = Math.min(layout.maxWidth, candidateSize.width);
-        if (layout.maxHeight !== undefined)
-          candidateSize.height = Math.min(layout.maxHeight, candidateSize.height);
-      }
-      // 2) 그리드 경계 클램프
-      const cfg = this.grid.getConfig();
-      candidateSize.width = Math.max(1, Math.min(candidateSize.width, cfg.columns));
-      if (cfg.rows && cfg.rows > 0) {
-        candidateSize.height = Math.max(1, Math.min(candidateSize.height, cfg.rows));
-      }
-
-      const noCollision =
-        this.allowOverlap ||
-        !this.grid.checkGridCollision(currentData.position, candidateSize, id, existingBlocks);
-      if (noCollision && this.grid.isValidGridPosition(currentData.position, candidateSize)) {
-        block.setSize(candidateSize);
-      }
-    }
-
-    // movable/resizable 플래그 업데이트
-    if (updates.movable !== undefined || updates.resizable !== undefined) {
-      block.setInteractionFlags({ movable: updates.movable, resizable: updates.resizable });
-      // 에디터 모드인 경우 커서/핸들 UI가 최신 상태가 되도록 재적용
-      block.setEditable(this.editable);
-      // 현재 선택 중이면 핸들을 재생성하기 위해 재선택 처리
-      const selected = this.dragManager.getSelectedBlock();
-      if (selected && selected.getData().id === id) {
-        this.dragManager.selectBlock(block);
-      }
-    }
-
-    if (updates.constraints !== undefined) {
-      block.setConstraints(updates.constraints as any);
-    }
-
-    if (updates.attributes) {
-      block.setAttributes(updates.attributes);
-
-      const extension = this.extensions.get(currentData.type);
-      if (extension) {
-        extension.onBeforeRender?.(newData as any, block.getContentElement(), this.editable);
-        extension.render(newData as any, block.getContentElement(), this.editable);
-        extension.onUpdateAttributes?.(newData as any, block.getContentElement(), this.editable);
-        extension.onAfterRender?.(newData as any, block.getContentElement(), this.editable);
-      }
-    }
-
-    this.emit('block:updated', { block: newData });
-    if (updates.position || updates.size) {
-      this.autoArrangeIfEnabled();
-      this.recomputeRowsIfNeeded();
-    }
-    return true;
+    const result = this.blockManager.updateBlock(id, updates);
+    return result.success;
   }
 
-  getBlock(id: string): CoreTypes.BlockData | null {
-    const block = this.blocks.get(id);
-    return block ? deepClone(block.getData()) : null;
+  /**
+   * 단일 블록 데이터 조회 (읽기 전용)
+   * ⚠️ 반환된 객체를 수정하지 마세요! 성능을 위해 원본을 반환합니다.
+   */
+  getBlock(id: string): Readonly<CoreTypes.BlockData> | null {
+    return this.blockManager.getBlock(id);
   }
 
-  getAllBlocks(): CoreTypes.BlockData[] {
-    return Array.from(this.blocks.values()).map((block) => deepClone(block.getData()));
+  /**
+   * 모든 블록 데이터 조회 (읽기 전용)
+   * ⚠️ 반환된 배열/객체를 수정하지 마세요! 성능을 위해 원본을 반환합니다.
+   */
+  getAllBlocks(): ReadonlyArray<Readonly<CoreTypes.BlockData>> {
+    return this.blockManager.getAllBlocks();
   }
 
+  /**
+   * 수정 가능한 블록 데이터 복사본 조회 (성능 비용 높음 - 필요시에만 사용)
+   */
+  getBlockCopy(id: string): CoreTypes.BlockData | null {
+    return this.blockManager.getBlockCopy(id);
+  }
+
+  getAllBlocksCopy(): CoreTypes.BlockData[] {
+    return this.blockManager.getAllBlocksCopy();
+  }
+
+  async duplicateBlock(id: string): Promise<string | null> {
+    const command = new DuplicateBlockCommand(id);
+    const result = await this.commandRunner.execute(command);
+    return result.success ? result.data?.blockId || null : null;
+  }
+
+  // 선택 관리
   selectBlock(id: string | null): void {
-    if (!id) {
-      this.dragManager.selectBlock(null);
-      return;
-    }
+    this.selectionManager.selectSingle(id);
+  }
 
-    const block = this.blocks.get(id);
-    if (block && this.editable) {
-      this.dragManager.selectBlock(block);
-    }
+  async clearSelection(): Promise<boolean> {
+    const command = new ClearSelectionCommand();
+    const result = await this.commandRunner.execute(command);
+    return result.success;
   }
 
   getSelectedBlockId(): string | null {
-    const selectedBlock = this.dragManager.getSelectedBlock();
-    return selectedBlock ? selectedBlock.getData().id : null;
+    return this.selectionManager.getPrimaryId();
   }
 
-  duplicateBlock(id: string): string | null {
-    const blockData = this.getBlock(id);
-    if (!blockData) return null;
+  getSelectedBlockIds(): string[] {
+    return this.selectionManager.getSelectedIds();
+  }
 
-    const existingBlocks = Array.from(this.blocks.values()).map((b) => b.getData());
-    const newPosition = this.grid.findAvailablePosition(blockData.size, existingBlocks);
-
-    const duplicateData = {
-      ...blockData,
-      id: generateId(),
-      position: {
-        ...newPosition,
-        zIndex: this.nextZIndex++,
+  // Advanced selection methods using Commands
+  async selectBlocksInRegion(
+    bounds: {
+      left: number;
+      top: number;
+      right: number;
+      bottom: number;
+    },
+    isAdditive: boolean = false,
+  ): Promise<boolean> {
+    const containerRect = this.container.getBoundingClientRect();
+    const command = new SelectByCriteriaCommand({
+      type: 'lasso',
+      params: {
+        bounds,
+        isAdditive,
+        containerBounds: containerRect,
       },
-    };
-
-    return this.addBlock(duplicateData);
-  }
-
-  setEditable(editable: boolean): void {
-    this.editable = editable;
-
-    this.container.classList.toggle('pegboard-editor-mode', this.editable);
-    this.container.classList.toggle('pegboard-viewer-mode', !this.editable);
-
-    this.blocks.forEach((block) => {
-      block.setEditable(this.editable);
     });
 
-    if (this.editable) {
+    const result = await this.commandRunner.execute(command);
+    return result.success;
+  }
+
+  async selectAllBlocks(): Promise<boolean> {
+    const command = new SelectByCriteriaCommand({
+      type: 'all',
+    });
+
+    const result = await this.commandRunner.execute(command);
+    return result.success;
+  }
+
+  async selectBlocksByType(type: string): Promise<boolean> {
+    const command = new SelectByCriteriaCommand({
+      type: 'by-type',
+      params: { type },
+    });
+
+    const result = await this.commandRunner.execute(command);
+    return result.success;
+  }
+
+  async selectBlocksInPosition(
+    minX?: number,
+    maxX?: number,
+    minY?: number,
+    maxY?: number,
+  ): Promise<boolean> {
+    const command = new SelectByCriteriaCommand({
+      type: 'by-position',
+      params: { minX, maxX, minY, maxY },
+    });
+
+    const result = await this.commandRunner.execute(command);
+    return result.success;
+  }
+
+  // 편집 모드 관리
+  setEditable(editable: boolean): void {
+    console.log('🔧 Pegboard.setEditable() called with:', editable);
+    
+    this.stateManager.setEditableMode(editable);
+
+    // UI 업데이트
+    this.container.classList.toggle('pegboard-editor-mode', editable);
+    this.container.classList.toggle('pegboard-viewer-mode', !editable);
+
+    // 이벤트 시스템 설정
+    this.uiEventListener?.setEditorMode(editable);
+    console.log('🔧 UIEventListener.editorMode set to:', editable);
+
+    // 블록들에 적용
+    for (const block of this.blockManager.getAllBlockInstances()) {
+      block.setEditable(editable);
+    }
+
+    // 그리드 라인 업데이트
+    if (editable) {
       this.showGridLines();
+      console.log('🔧 Grid lines shown');
     } else {
-      // Leaving editor mode should end edit mode if active
-      if (this.editingBlockId) this.exitBlockEditMode();
       this.hideGridLines();
-      this.dragManager.selectBlock(null);
+      this.selectionManager.clearSelection();
+      console.log('🔧 Grid lines hidden and selection cleared');
     }
   }
 
   getEditable(): boolean {
-    return this.editable;
+    return this.stateManager.getUIState().editable;
   }
 
+  // 그리드 관리
   setGridConfig(config: Partial<CoreTypes.GridConfig>): void {
-    // rows를 명시적으로 설정하면 baseline도 갱신
-    if (config.rows !== undefined) {
-      this.minRows = config.rows;
-    }
-    this.grid.updateConfig(config);
-    // autoGrowRows 상태 유지 반영
-    (this.grid as any).setUnboundedRows?.(this.autoGrowRows);
-    this.grid.applyGridStyles(this.container);
-    if (this.editable) this.showGridLines();
+    // ConfigManager를 통해 설정 업데이트
+    this.configManager.updateGridConfig(config as any);
 
-    // grid 변경 후에도 자동 rows 보정
-    this.recomputeRowsIfNeeded();
+    // Grid 인스턴스 업데이트
+    this.grid.updateConfig(config);
+    this.grid.applyGridStyles(this.container);
+
+    // 그리드 라인 업데이트
+    if (this.getEditable()) {
+      this.showGridLines();
+    }
 
     this.emit('grid:changed', { grid: this.grid.getConfig() });
   }
@@ -650,308 +409,383 @@ export class Pegboard extends EventEmitter {
     return this.grid.getConfig();
   }
 
-  // Cross-board helpers
-  getContainer(): HTMLElement {
-    return this.container;
+  // Extension 관리
+  registerExtension(extension: BlockExtension<any>): void {
+    this.blockManager.registerExtension(extension);
   }
 
-  getDragOutEnabled(): boolean {
-    return !!this.dragOut;
+  unregisterExtension(type: string): void {
+    this.blockManager.unregisterExtension(type);
   }
 
-  // Expose hint control for external previews (rendered within this board)
-  showExternalHint(pos: CoreTypes.GridPosition, size: CoreTypes.GridSize, valid: boolean): void {
-    (this.dragManager as any).showExternalHint?.(pos, size, valid);
-  }
-  clearExternalHint(): void {
-    (this.dragManager as any).clearExternalHint?.();
-  }
-
-  // Convert viewport pixels to this board's grid position
-  getGridPositionFromViewport(pt: { x: number; y: number }): CoreTypes.GridPosition {
-    return this.grid.getGridPositionFromPixels({ x: pt.x, y: pt.y }, this.container);
+  // Z-index 관리 - Command 패턴 사용
+  async bringToFront(id: string): Promise<boolean> {
+    const command = new BringToFrontCommand(id);
+    const result = await this.commandRunner.execute(command);
+    return result.success;
   }
 
-  // Validate a position/size against this board's grid bounds
-  isValidPosition(pos: CoreTypes.GridPosition, size: CoreTypes.GridSize): boolean {
-    return this.grid.isValidGridPosition(pos, size);
+  async sendToBack(id: string): Promise<boolean> {
+    const command = new SendToBackCommand(id);
+    const result = await this.commandRunner.execute(command);
+    return result.success;
   }
 
-  // Check collision at a position/size with existing blocks in this board
-  wouldCollide(
-    pos: CoreTypes.GridPosition,
+  async setZIndex(id: string, zIndex: number): Promise<boolean> {
+    const command = new SetZIndexCommand(id, zIndex);
+    const result = await this.commandRunner.execute(command);
+    return result.success;
+  }
+
+  async arrangeZOrder(arrangement: 'front' | 'back' | 'forward' | 'backward'): Promise<boolean> {
+    const command = new ArrangeZOrderCommand(arrangement);
+    const result = await this.commandRunner.execute(command);
+    return result.success;
+  }
+
+  async autoArrange(
+    strategy?: CoreTypes.AutoArrangeStrategy,
+    blockIds?: string[],
+  ): Promise<boolean> {
+    const finalStrategy = strategy || this.configManager.getBehaviorConfig().autoArrangeStrategy;
+
+    console.log('🔧 AutoArrange 호출됨:', {
+      strategy: finalStrategy,
+      blockIds,
+      totalBlocks: this.blockManager.getAllBlocks().length,
+      behaviorConfig: this.configManager.getBehaviorConfig(),
+    });
+
+    const command = new AutoArrangeCommand(finalStrategy, blockIds);
+    const result = await this.commandRunner.execute(command);
+
+    console.log('🔧 AutoArrange 결과:', result);
+
+    // Auto arrange 후 그리드 라인 업데이트
+    if (result.success && this.getAutoGrowRows() && this.getEditable()) {
+      this.showGridLines();
+    }
+
+    return result.success;
+  }
+
+  async reflow(
+    anchorBlockId: string,
+    newPosition: CoreTypes.GridPosition,
+    strategy?: CoreTypes.DragReflowStrategy,
+  ): Promise<boolean> {
+    const finalStrategy = strategy || this.configManager.getBehaviorConfig().dragReflow;
+    if (finalStrategy === 'none') {
+      return true; // 리플로우 비활성화
+    }
+
+    const command = new ReflowCommand(anchorBlockId, newPosition, finalStrategy);
+    const result = await this.commandRunner.execute(command);
+
+    // Reflow 후 그리드 라인 업데이트
+    if (result.success && this.getAutoGrowRows() && this.getEditable()) {
+      this.showGridLines();
+    }
+
+    return result.success;
+  }
+
+  // Preview 관리
+  showPreview(
+    position: CoreTypes.GridPosition,
     size: CoreTypes.GridSize,
-    excludeId: string = '',
-  ): boolean {
-    const existing = this.getAllBlocks();
-    return this.grid.checkGridCollision(pos, size, excludeId, existing as any);
+    valid: boolean = true,
+  ): void {
+    this.previewManager.showPreview(position, size, valid);
   }
 
+  updatePreview(
+    position: CoreTypes.GridPosition,
+    size?: CoreTypes.GridSize,
+    valid?: boolean,
+  ): void {
+    this.previewManager.updatePreview(position, size, valid);
+  }
+
+  hidePreview(): void {
+    this.previewManager.hidePreview();
+  }
+
+  isPreviewActive(): boolean {
+    return this.previewManager.isPreviewActive();
+  }
+
+  getCurrentPreview(): {
+    position: CoreTypes.GridPosition;
+    size: CoreTypes.GridSize;
+    valid: boolean;
+  } | null {
+    return this.previewManager.getCurrentPreview();
+  }
+
+  // 블록 이동/리사이즈 (즉시 실행)
+  moveBlockToPosition(id: string, gridPosition: CoreTypes.GridPosition): boolean {
+    const result = this.blockManager.moveBlock(id, gridPosition);
+    return result.success;
+  }
+
+  resizeBlock(id: string, gridSize: CoreTypes.GridSize): boolean {
+    const result = this.blockManager.resizeBlock(id, gridSize);
+    return result.success;
+  }
+
+  // 블록 이동/리사이즈 (트랜지션 적용)
+  async moveBlockWithTransition(
+    id: string,
+    from: CoreTypes.GridPosition,
+    to: CoreTypes.GridPosition,
+  ): Promise<void> {
+    const block = this.blockManager.getBlockInstance(id);
+    if (!block) {
+      throw new Error(`Block with id ${id} not found`);
+    }
+
+    await this.transitionManager.moveBlock(block, from, to);
+  }
+
+  // Rollback 전용 메서드 - 현재 transform 상태에서 원래 위치로 FLIP 애니메이션
+  async rollbackBlockWithTransition(
+    id: string,
+    originalPosition: CoreTypes.GridPosition,
+  ): Promise<void> {
+    const block = this.blockManager.getBlockInstance(id);
+    if (!block) {
+      throw new Error(`Block with id ${id} not found`);
+    }
+
+    // TransitionManager의 rollback 메서드 사용
+    const currentData = block.getData();
+    console.log(originalPosition, currentData.position);
+    await this.transitionManager.rollback(
+      [block],
+      [{ position: originalPosition, size: currentData.size }],
+      'flip',
+    );
+  }
+
+  async resizeBlockWithTransition(
+    id: string,
+    toSize: CoreTypes.GridSize,
+    toPosition?: CoreTypes.GridPosition,
+  ): Promise<void> {
+    const block = this.blockManager.getBlockInstance(id);
+    if (!block) {
+      throw new Error(`Block with id ${id} not found`);
+    }
+
+    const blockData = block.getData();
+    const fromPos = blockData.position;
+    const toPos = toPosition || fromPos;
+    const fromSize = blockData.size;
+
+    await this.transitionManager.resizeBlock(block, fromPos, toPos, fromSize, toSize);
+  }
+
+  async moveBlocksWithTransition(
+    moves: { id: string; to: CoreTypes.GridPosition }[],
+  ): Promise<void> {
+    const blockMoves = moves.map(({ id, to }) => {
+      const block = this.blockManager.getBlockInstance(id);
+      if (!block) {
+        throw new Error(`Block with id ${id} not found`);
+      }
+      return {
+        block,
+        from: block.getData().position,
+        to,
+      };
+    });
+
+    await this.transitionManager.moveBlocks(blockMoves);
+  }
+
+  // Transition 제어
+  cancelTransition(): void {
+    this.transitionManager.cancel();
+  }
+
+  isTransitioning(): boolean {
+    return this.transitionManager.isTransitioning();
+  }
+
+  // 설정 관리
+  setAllowOverlap(allow: boolean): void {
+    this.configManager.updateInteractionConfig({ allowOverlap: allow });
+    this.emit('overlap:changed', { allow });
+  }
+
+  getAllowOverlap(): boolean {
+    return this.configManager.getInteractionConfig().allowOverlap;
+  }
+
+  setLassoSelection(enabled: boolean): void {
+    this.configManager.updateInteractionConfig({ lassoSelection: enabled });
+    this.uiEventListener?.setLassoEnabled(enabled);
+  }
+
+  getLassoSelection(): boolean {
+    return this.configManager.getInteractionConfig().lassoSelection;
+  }
+
+  setKeyboardMove(enabled: boolean): void {
+    this.configManager.updateInteractionConfig({ keyboardMove: enabled });
+    this.uiEventListener?.setKeyboardEnabled(enabled);
+  }
+
+  getKeyboardMove(): boolean {
+    return this.configManager.getInteractionConfig().keyboardMove;
+  }
+
+  setKeyboardDelete(enabled: boolean): void {
+    this.configManager.updateInteractionConfig({ keyboardDelete: enabled });
+    this.uiEventListener?.setKeyboardEnabled(enabled);
+  }
+
+  getKeyboardDelete(): boolean {
+    return this.configManager.getInteractionConfig().keyboardDelete;
+  }
+
+  setGridOverlayMode(mode: 'always' | 'active' | 'never'): void {
+    this.configManager.updateVisualConfig({ gridOverlayMode: mode });
+  }
+
+  getGridOverlayMode(): 'always' | 'active' | 'never' {
+    return this.configManager.getVisualConfig().gridOverlayMode;
+  }
+
+  setAutoGrowRows(enabled: boolean): void {
+    this.grid.setUnboundedRows(enabled);
+    this.grid.applyGridStyles(this.container);
+
+    // 그리드 라인 즉시 업데이트
+    if (this.getEditable()) {
+      this.showGridLines();
+    }
+
+    this.emit('grid:autoGrowRows:changed', { enabled });
+  }
+
+  getAutoGrowRows(): boolean {
+    return this.grid.getUnboundedRows();
+  }
+
+  // 직렬화
   exportData(): { blocks: CoreTypes.BlockData[]; grid: CoreTypes.GridConfig } {
     return {
-      blocks: this.getAllBlocks(),
+      blocks: this.getAllBlocksCopy(), // 외부 노출용이므로 복사본 사용
       grid: this.getGridConfig(),
     };
   }
 
-  // JSON 직렬화: 버전 포함
   exportJSON(pretty = false): string {
     const data: CoreTypes.SerializedPegboardData = {
       version: 1,
       grid: this.getGridConfig(),
-      blocks: this.getAllBlocks(),
+      blocks: this.getAllBlocks() as CoreTypes.BlockData[], // JSON.stringify가 어차피 복사하므로 원본 사용 (성능 최적화)
     };
     return pretty ? JSON.stringify(data, null, 2) : JSON.stringify(data);
   }
 
-  // JSON 역직렬화: 현재 상태를 지우고 로드
   importJSON(json: string): void {
     let parsed: CoreTypes.SerializedPegboardData;
     try {
       parsed = JSON.parse(json);
-    } catch (e) {
+    } catch (_e) {
       throw new Error('Invalid JSON');
     }
-    if (!parsed || typeof parsed !== 'object') throw new Error('Invalid data');
-    // 버전 체크(향후 확장 가능)
-    const version = (parsed as any).version ?? 1;
-    if (version !== 1) {
-      // 호환 처리 여지를 남김
-      // 현재는 동일 스키마만 허용
+
+    if (!parsed || typeof parsed !== 'object') {
+      throw new Error('Invalid data');
     }
 
     // 현재 상태 초기화
-    this.blocks.forEach((_, id) => this.removeBlock(id));
+    this.clear();
 
     // 그리드 설정 적용
-    if (parsed.grid) this.setGridConfig(parsed.grid);
+    if (parsed.grid) {
+      this.setGridConfig(parsed.grid);
+    }
 
-    // 블록 복원: 입력 데이터의 zIndex를 존중
+    // 블록 복원
     const blocks = parsed.blocks || [];
-    blocks.forEach((b) => {
+    for (const blockData of blocks) {
       this.addBlock({
-        id: b.id,
-        type: b.type,
-        position: b.position,
-        size: b.size,
-        attributes: b.attributes,
-        movable: b.movable,
-        resizable: b.resizable,
+        id: blockData.id,
+        type: blockData.type,
+        position: blockData.position,
+        size: blockData.size,
+        attributes: blockData.attributes,
+        movable: blockData.movable,
+        resizable: blockData.resizable,
       });
-    });
+    }
 
-    // nextZIndex 재계산: 현재 블록들 중 최대값 + 1
-    const maxZ = this.getAllBlocks().reduce((m, d) => Math.max(m, d.position.zIndex), 0);
-    (this as any).nextZIndex = Math.max(this.nextZIndex, maxZ + 1);
-
-    // import 후 rows 재계산
-    this.autoArrangeIfEnabled();
-    this.recomputeRowsIfNeeded();
+    // nextZIndex 재계산
+    this.stateManager.syncNextZIndex();
   }
 
   clear(): void {
-    this.blocks.forEach((_, id) => this.removeBlock(id));
-    // clear 후에도 최소 rows 유지
-    this.recomputeRowsIfNeeded();
+    this.blockManager.clear();
+    this.selectionManager.clearSelection();
   }
 
-  bringToFront(id: string): boolean {
-    const block = this.blocks.get(id);
-    if (!block) return false;
+  // Undo/Redo 기능
+  async undo(): Promise<boolean> {
+    const result = await this.commandRunner.undo();
 
-    const blockData = block.getData();
-    block.setPosition({
-      ...blockData.position,
-      zIndex: this.nextZIndex++,
-    });
-
-    // nextZIndex 동기화
-    this.syncNextZIndex();
-    return true;
-  }
-
-  private syncNextZIndex() {
-    const maxZ = this.getAllBlocks().reduce((m, d) => Math.max(m, d.position.zIndex), 0);
-    this.nextZIndex = Math.max(this.nextZIndex, maxZ + 1);
-  }
-
-  // z-index 중복이 있으면 1..N으로 재배열해 유일하게 만듭니다(상대 순서는 유지)
-  private normalizeZOrder() {
-    const items = Array.from(this.blocks.values()).map((b) => ({
-      b,
-      z: b.getData().position.zIndex,
-      id: b.getData().id,
-    }));
-    items.sort((a, b) => (a.z === b.z ? a.id.localeCompare(b.id) : a.z - b.z));
-    let changed = false;
-    items.forEach((it, idx) => {
-      const desired = idx + 1;
-      if (it.z !== desired) {
-        const pos = it.b.getData().position;
-        it.b.setPosition({ ...pos, zIndex: desired });
-        changed = true;
-      }
-    });
-    if (changed) this.syncNextZIndex();
-  }
-
-  private ensureUniqueZIndices() {
-    const seen = new Set<number>();
-    let dup = false;
-    for (const b of this.blocks.values()) {
-      const z = b.getData().position.zIndex;
-      if (seen.has(z)) {
-        dup = true;
-        break;
-      }
-      seen.add(z);
-    }
-    if (dup) this.normalizeZOrder();
-  }
-
-  // 한 단계 앞으로 (z-index를 바로 위의 블록과 교환)
-  bringForward(id: string): boolean {
-    this.ensureUniqueZIndices();
-    const list = Array.from(this.blocks.values());
-    if (list.length <= 1) return false;
-    const sorted = list
-      .map((b) => ({ b, z: b.getData().position.zIndex }))
-      .sort((a, b) => a.z - b.z);
-    const idx = sorted.findIndex((e) => e.b.getData().id === id);
-    if (idx === -1 || idx === sorted.length - 1) return false; // 이미 최상단
-    const current = sorted[idx]!.b;
-    const above = sorted[idx + 1]!.b;
-    const cz = current.getData().position.zIndex;
-    const az = above.getData().position.zIndex;
-    // swap
-    current.setPosition({ ...current.getData().position, zIndex: az });
-    above.setPosition({ ...above.getData().position, zIndex: cz });
-
-    this.syncNextZIndex();
-    return true;
-  }
-
-  sendToBack(id: string): boolean {
-    const block = this.blocks.get(id);
-    if (!block) return false;
-
-    const blockData = block.getData();
-    const minZIndex = Math.min(...this.getAllBlocks().map((b) => b.position.zIndex));
-
-    block.setPosition({
-      ...blockData.position,
-      zIndex: minZIndex - 1, // 음수 허용: 진짜 최하단으로
-    });
-
-    this.syncNextZIndex();
-    return true;
-  }
-
-  // 한 단계 뒤로 (z-index를 바로 아래의 블록과 교환)
-  sendBackward(id: string): boolean {
-    this.ensureUniqueZIndices();
-    const list = Array.from(this.blocks.values());
-    if (list.length <= 1) return false;
-    const sorted = list
-      .map((b) => ({ b, z: b.getData().position.zIndex }))
-      .sort((a, b) => a.z - b.z);
-    const idx = sorted.findIndex((e) => e.b.getData().id === id);
-    if (idx <= 0) return false; // 이미 최하단 또는 없음
-    const current = sorted[idx]!.b;
-    const below = sorted[idx - 1]!.b;
-    const cz = current.getData().position.zIndex;
-    const bz = below.getData().position.zIndex;
-    // swap
-    current.setPosition({ ...current.getData().position, zIndex: bz });
-    below.setPosition({ ...below.getData().position, zIndex: cz });
-
-    this.syncNextZIndex();
-    return true;
-  }
-
-  moveBlockToPosition(id: string, gridPosition: CoreTypes.GridPosition): boolean {
-    const block = this.blocks.get(id);
-    if (!block) return false;
-
-    const blockData = block.getData();
-    const existingBlocks = Array.from(this.blocks.values())
-      .map((b) => b.getData())
-      .filter((b) => b.id !== id);
-    const noCollision =
-      this.allowOverlap ||
-      !this.grid.checkGridCollision(gridPosition, blockData.size, id, existingBlocks);
-    if (noCollision && this.grid.isValidGridPosition(gridPosition, blockData.size)) {
-      block.setPosition(gridPosition);
-      return true;
-    }
-    return false;
-  }
-
-  resizeBlock(id: string, gridSize: CoreTypes.GridSize): boolean {
-    const block = this.blocks.get(id);
-    if (!block) return false;
-
-    const blockData = block.getData();
-    const existingBlocks = Array.from(this.blocks.values())
-      .map((b) => b.getData())
-      .filter((b) => b.id !== id);
-
-    const layout = block.getData().constraints;
-    let candidateSize = { ...gridSize };
-    if (layout) {
-      if (layout.minWidth) candidateSize.width = Math.max(layout.minWidth, candidateSize.width);
-      if (layout.minHeight) candidateSize.height = Math.max(layout.minHeight, candidateSize.height);
-      if (layout.maxWidth) candidateSize.width = Math.min(layout.maxWidth, candidateSize.width);
-      if (layout.maxHeight) candidateSize.height = Math.min(layout.maxHeight, candidateSize.height);
+    // Undo 후 그리드 라인 업데이트
+    if (result.success && this.getAutoGrowRows() && this.getEditable()) {
+      this.showGridLines();
     }
 
-    const noCollision =
-      this.allowOverlap ||
-      !this.grid.checkGridCollision(blockData.position, candidateSize, id, existingBlocks);
-    if (noCollision && this.grid.isValidGridPosition(blockData.position, candidateSize)) {
-      block.setSize(candidateSize);
-      return true;
+    return result.success;
+  }
+
+  async redo(): Promise<boolean> {
+    const result = await this.commandRunner.redo();
+
+    // Redo 후 그리드 라인 업데이트
+    if (result.success && this.getAutoGrowRows() && this.getEditable()) {
+      this.showGridLines();
     }
-    return false;
+
+    return result.success;
   }
 
-  setAllowOverlap(allow: boolean) {
-    if (this.allowOverlap === allow) return;
-    this.allowOverlap = allow;
-    this.emit('overlap:changed', { allow });
+  canUndo(): boolean {
+    return this.commandRunner.canUndo();
   }
 
-  getAllowOverlap() {
-    return this.allowOverlap;
+  canRedo(): boolean {
+    return this.commandRunner.canRedo();
   }
 
-  setLassoSelection(enabled: boolean) {
-    this.lassoSelection = !!enabled;
+  clearHistory(): void {
+    this.commandRunner.clearHistory();
   }
 
-  getLassoSelection() {
-    return this.lassoSelection;
-  }
-
-  setKeyboardMove(enabled: boolean) {
-    this.keyboardMove = !!enabled;
-  }
-
-  getKeyboardMove() {
-    return this.keyboardMove;
-  }
-
-  setKeyboardDelete(enabled: boolean) {
-    this.keyboardDelete = !!enabled;
-  }
-
-  getKeyboardDelete() {
-    return this.keyboardDelete;
+  // 기타
+  getContainer(): HTMLElement {
+    return this.container;
   }
 
   destroy(): void {
-    this.dragManager.destroy();
-    this.blocks.forEach((_, id) => this.removeBlock(id));
+    // Auto grow rows 타이머 정리
+    if (this.gridUpdateTimeout) {
+      cancelAnimationFrame(this.gridUpdateTimeout);
+      this.gridUpdateTimeout = null;
+    }
+
+    this.blockManager.destroy();
+    this.selectionManager.destroy();
+    this.previewManager.destroy();
+    this.transitionManager.destroy();
+    this.uiEventListener?.destroy();
     this.hideGridLines();
     this.removeAllListeners();
     this.container.classList.remove(
@@ -962,483 +796,384 @@ export class Pegboard extends EventEmitter {
     CrossBoardCoordinator.unregister(this as any);
   }
 
-  // 새 기능: 블록 하단에 맞춰 rows 자동 증감
-  private recomputeRowsIfNeeded(): void {
-    if (!this.autoGrowRows) return;
-    const cfg = this.grid.getConfig();
-    // baseline: 최초/마지막 지정 rows를 최소로 유지(현재 rows 값에 의해 래칫되지 않도록)
-    const minRows = this.minRows || 0;
+  // =============================================================================
+  // Private 구현부
+  // =============================================================================
 
-    // 모든 블록의 y + height - 1 의 최대값을 계산
-    let bottom = 0;
-    for (const b of this.blocks.values()) {
-      const d = b.getData();
-      bottom = Math.max(bottom, d.position.y + d.size.height - 1);
+  private setupContainer(): void {
+    if (!this.container.classList.contains('pegboard-container')) {
+      this.container.classList.add('pegboard-container');
+    }
+    this.grid.applyGridStyles(this.container);
+  }
+
+  private setupEventSystemListeners(): void {
+    // SelectionHandler 이벤트
+    this.selectionHandler.on('selection:changed', (event: any) => {
+      (this as any).emit('selection:changed', { ids: event.newSelection || [] });
+    });
+
+    this.selectionHandler.on('block:selected', (event: any) => {
+      (this as any).emit('block:selected', { block: event.block || null });
+    });
+
+    // KeyboardHandler 이벤트 - 커스텀 처리
+    (this.keyboardHandler as any).on('blocks:deleted', () => {
+      // 이미 KeyboardHandler 내부에서 삭제 처리됨
+    });
+
+    (this.keyboardHandler as any).on('blocks:moved', () => {
+      // 이미 블록 이동 이벤트가 BlockManager에서 발생됨
+    });
+
+    // DragHandler 이벤트
+    (this.dragHandler as any).on('drag:started', () => {
+      this.stateManager.updateUIState({ isInteractionActive: true });
+      (this as any).emit('interaction:active', { mode: 'move' });
+    });
+
+    (this.dragHandler as any).on('drag:ended', () => {
+      this.stateManager.updateUIState({ isInteractionActive: false });
+      (this as any).emit('interaction:idle', {});
+    });
+
+    // DragHandler에서 실제 블록 이동/리사이즈 이벤트는 BlockManager가 발생시킴
+
+    // LassoHandler 이벤트
+    (this.lassoHandler as any).on('lasso:started', () => {
+      this.stateManager.updateUIState({ isInteractionActive: true });
+      (this as any).emit('interaction:active', { mode: 'move' });
+    });
+
+    (this.lassoHandler as any).on('lasso:ended', () => {
+      this.stateManager.updateUIState({ isInteractionActive: false });
+      (this as any).emit('interaction:idle', {});
+    });
+  }
+
+  private setupEventListeners(): void {
+    // StateManager 이벤트
+    (this.stateManager as any).on('ui:editable:changed', (event: any) => {
+      (this as any).emit('editable:changed', { editable: event.newValue });
+    });
+
+    (this.stateManager as any).on('ui:isInteractionActive:changed', (event: any) => {
+      // interaction 상태 변경 시 그리드 라인 업데이트 (active 모드에서만 표시)
+      this.showGridLines();
+      (this as any).emit('interaction:active:changed', { isActive: event.newValue });
+    });
+
+    // ConfigManager 이벤트
+    (this.configManager as any).on('config:grid:changed', (event: any) => {
+      (this as any).emit('grid:changed', { grid: event.newValue });
+    });
+
+    (this.configManager as any).on('config:visual:changed', (event: any) => {
+      // gridOverlayMode 변경 시 그리드 라인 업데이트
+      if (event.oldValue.gridOverlayMode !== event.newValue.gridOverlayMode) {
+        this.showGridLines();
+      }
+      (this as any).emit('visual:changed', { visual: event.newValue });
+    });
+
+    // BlockManager 이벤트
+    this.blockManager.on('block:added', (event) => {
+      this.emit('block:added', event);
+      // Auto grow rows가 활성화된 경우 그리드 라인 업데이트
+      if (this.getAutoGrowRows()) {
+        this.showGridLines();
+      }
+    });
+
+    this.blockManager.on('block:removed', (event) => {
+      this.emit('block:removed', event);
+      // Auto grow rows가 활성화된 경우 그리드 라인 업데이트
+      if (this.getAutoGrowRows()) {
+        this.showGridLines();
+      }
+    });
+
+    this.blockManager.on('block:updated', (event) => {
+      this.emit('block:updated', event);
+    });
+
+    this.blockManager.on('block:moved', (event) => {
+      this.emit('block:moved', event);
+      // Auto grow rows가 활성화된 경우 그리드 라인 업데이트
+      if (this.getAutoGrowRows()) {
+        this.showGridLines();
+      }
+    });
+
+    this.blockManager.on('block:resized', (event) => {
+      this.emit('block:resized', event);
+      // Auto grow rows가 활성화된 경우 그리드 라인 업데이트
+      if (this.getAutoGrowRows()) {
+        this.showGridLines();
+      }
+    });
+
+    // SelectionManager 이벤트
+    this.selectionManager.on('selection:changed', (event: any) => {
+      this.emit('selection:changed', { ids: event.newSelection || [] });
+    });
+
+    this.selectionManager.on('block:selected', (event) => {
+      this.emit('block:selected', event);
+    });
+
+    // DragHandler 이벤트 - PreviewManager와 연동
+    let isDragActive = false;
+
+    (this.dragHandler as any).on('drag:started', (event: any) => {
+      isDragActive = true;
+      (this as any).emit('drag:started', event);
+    });
+
+    (this.dragHandler as any).on('drag:preview', (event: any) => {
+      // 실제 드래그가 활성화된 상태에서만 프리뷰 표시
+      if (isDragActive) {
+        this.previewManager.showPreview(event.position, event.size, event.valid);
+
+        // Auto grow rows가 활성화된 경우 드래그 중에도 그리드 라인 동적 업데이트 (성능 최적화)
+        if (this.getAutoGrowRows() && this.getEditable()) {
+          this.updateGridDuringDrag(event);
+        }
+      }
+    });
+
+    (this.dragHandler as any).on('drag:ended', (event: any) => {
+      // 드래그가 끝나면 미리보기 숨기기
+      isDragActive = false;
+      this.previewManager.hidePreview();
+
+      // Auto grow rows 캐시 정리
+      if (this.gridUpdateTimeout) {
+        cancelAnimationFrame(this.gridUpdateTimeout);
+        this.gridUpdateTimeout = null;
+      }
+      this.lastMaxUsedRow = 0; // 캐시 초기화
+
+      (this as any).emit('drag:ended', event);
+    });
+
+    (this.dragHandler as any).on('drag:cancelled', (event: any) => {
+      // 드래그가 취소되면 미리보기 숨기기
+      isDragActive = false;
+      this.previewManager.hidePreview();
+
+      // Auto grow rows 캐시 정리
+      if (this.gridUpdateTimeout) {
+        cancelAnimationFrame(this.gridUpdateTimeout);
+        this.gridUpdateTimeout = null;
+      }
+      this.lastMaxUsedRow = 0; // 캐시 초기화
+
+      (this as any).emit('drag:cancelled', event);
+    });
+  }
+
+  private applyInitialSettings(): void {
+    // StateManager의 초기 editable 상태를 UI에 적용
+    const initialEditable = this.stateManager.getUIState().editable;
+    console.log('🔧 Applying initial editable state:', initialEditable);
+    
+    // UI 업데이트 (setEditable 로직과 동일하지만 StateManager는 이미 설정됨)
+    this.container.classList.toggle('pegboard-editor-mode', initialEditable);
+    this.container.classList.toggle('pegboard-viewer-mode', !initialEditable);
+    this.uiEventListener?.setEditorMode(initialEditable);
+    
+    if (initialEditable) {
+      this.showGridLines();
+    } else {
+      this.hideGridLines();
+      this.selectionManager.clearSelection();
     }
 
-    const desired = Math.max(minRows, bottom);
-    if (!cfg.rows || cfg.rows !== desired) {
-      this.grid.updateConfig({ rows: desired });
-      this.grid.applyGridStyles(this.container);
-      if (this.editable) this.showGridLines();
-      this.emit('grid:changed', { grid: this.grid.getConfig() });
+    // 초기 설정 적용
+    const gridConfig = this.configManager.getGridConfig();
+    const behaviorConfig = this.configManager.getBehaviorConfig();
+    const interactionConfig = this.configManager.getInteractionConfig();
+
+    // Lasso selection 설정 적용
+    this.uiEventListener?.setLassoEnabled(interactionConfig.lassoSelection);
+
+    // Auto grow rows 설정 적용
+    if (gridConfig.autoGrowRows) {
+      this.setAutoGrowRows(true);
+    }
+
+    // Auto arrange 초기 실행 (활성화되어 있고 블록이 있는 경우)
+    if (behaviorConfig.autoArrange) {
+      // 초기 블록들이 추가된 후 자동 정렬 (비동기)
+      setTimeout(() => {
+        if (this.getAllBlocks().length > 0) {
+          this.autoArrange(behaviorConfig.autoArrangeStrategy).catch((error) => {
+            console.warn('Initial auto arrange failed:', error);
+          });
+        }
+      }, 0);
+    }
+
+    // 그리드 라인 표시
+    if (this.getEditable()) {
+      this.showGridLines();
     }
   }
 
-  // Auto arrange
-  private autoArrangeIfEnabled(): void {
-    if (!this.autoArrange) return;
-    if (this.isArranging) return;
-    // 드래그/리사이즈 중에는 실행하지 않음
-    if (this.dragManager && this.dragManager.isDragging()) return;
-    if (this.autoArrangeStrategy === 'top-left') {
-      this.arrangeTopLeft();
-    } else if (this.autoArrangeStrategy === 'masonry') {
-      this.arrangeMasonry();
-    } else if (this.autoArrangeStrategy === 'by-row') {
-      this.arrangeByRow();
-    } else if (this.autoArrangeStrategy === 'by-column') {
-      this.arrangeByColumn();
+  private showGridLines(): void {
+    const visualConfig = this.configManager.getVisualConfig();
+    const uiState = this.stateManager.getUIState();
+
+    if (!uiState.editable) return;
+
+    if (visualConfig.gridOverlayMode === 'never') {
+      this.grid.hideGridLines(this.container);
+      return;
     }
+
+    if (visualConfig.gridOverlayMode === 'active') {
+      if (uiState.isInteractionActive) {
+        const blocks = this.blockManager.getAllBlocks();
+        this.grid.renderGridLines(this.container, blocks);
+      } else {
+        this.grid.hideGridLines(this.container);
+      }
+      return;
+    }
+
+    // 'always'
+    const blocks = this.blockManager.getAllBlocks();
+    this.grid.renderGridLines(this.container, blocks);
   }
 
-  private arrangeTopLeft(): void {
-    const cfg = this.grid.getConfig();
-    if (cfg.columns <= 0) return;
-    // 중첩 허용이면 패킹 의미가 약함: 수행하지 않음
-    if (this.allowOverlap) return;
-    const blocks = Array.from(this.blocks.values());
-    if (blocks.length === 0) return;
-
-    this.isArranging = true;
-    try {
-      // 안정적 순서: 현재 위치 (y asc, x asc), 그 다음 id
-      const items = blocks
-        .map((b) => b)
-        .sort((a, b) => {
-          const ap = a.getData().position;
-          const bp = b.getData().position;
-          if (ap.y !== bp.y) return ap.y - bp.y;
-          if (ap.x !== bp.x) return ap.x - bp.x;
-          return a.getData().id.localeCompare(b.getData().id);
-        });
-
-      // Occupancy: placed proposals
-      const proposed = new Map<string, CoreTypes.GridPosition>();
-      let requiredBottom = 0;
-
-      const collides = (
-        pos: CoreTypes.GridPosition,
-        size: CoreTypes.GridSize,
-        excludeId?: string,
-      ) => {
-        // against proposed
-        for (const [id, p] of proposed.entries()) {
-          if (excludeId && id === excludeId) continue;
-          const b = this.blocks.get(id)!;
-          const s = b.getData().size;
-          const endX = pos.x + size.width - 1;
-          const endY = pos.y + size.height - 1;
-          const oEndX = p.x + s.width - 1;
-          const oEndY = p.y + s.height - 1;
-          const h = !(pos.x > oEndX || endX < p.x);
-          const v = !(pos.y > oEndY || endY < p.y);
-          if (h && v) return true;
-        }
-        return false;
-      };
-
-      const isWithin = (pos: CoreTypes.GridPosition, size: CoreTypes.GridSize) => {
-        // columns cap은 항상 적용, rows cap은 autoGrowRows일 때는 확장 허용
-        const withinColumns = pos.x >= 1 && pos.x + size.width - 1 <= cfg.columns;
-        if (!withinColumns) return false;
-        if (this.autoGrowRows) return pos.y >= 1; // 하한만
-        const rows = cfg.rows || Infinity;
-        return pos.y >= 1 && pos.y + size.height - 1 <= rows;
-      };
-
-      const findSpot = (size: CoreTypes.GridSize): CoreTypes.GridPosition | null => {
-        const maxRows = this.autoGrowRows ? Math.max(cfg.rows || 0, 1000) : cfg.rows || 1000;
-        for (let y = 1; y <= maxRows; y++) {
-          for (let x = 1; x <= cfg.columns - size.width + 1; x++) {
-            const p = { x, y, zIndex: 1 } as CoreTypes.GridPosition;
-            if (!isWithin(p, size)) continue;
-            if (!collides(p, size)) return p;
-          }
-        }
-        // no spot
-        return null;
-      };
-
-      for (const b of items) {
-        const d = b.getData();
-        const spot = findSpot(d.size);
-        if (spot) {
-          proposed.set(d.id, { x: spot.x, y: spot.y, zIndex: d.position.zIndex });
-          requiredBottom = Math.max(requiredBottom, spot.y + d.size.height - 1);
-        } else {
-          // keep original position and mark bottom for potential row growth
-          proposed.set(d.id, { ...d.position });
-          requiredBottom = Math.max(requiredBottom, d.position.y + d.size.height - 1);
-        }
-      }
-
-      // autoGrowRows: 필요한 경우 rows 확장
-      if (this.autoGrowRows && requiredBottom > (cfg.rows || 0)) {
-        this.grid.updateConfig({ rows: requiredBottom });
-        this.grid.applyGridStyles(this.container);
-        if (this.editable) this.showGridLines();
-        this.emit('grid:changed', { grid: this.grid.getConfig() });
-      }
-
-      // FLIP 애니메이션으로 커밋
-      const firstRects = new Map<string, DOMRect>();
-      for (const b of items) {
-        firstRects.set(b.getData().id, b.getElement().getBoundingClientRect());
-      }
-      // set positions
-      for (const b of items) {
-        const id = b.getData().id;
-        const to = proposed.get(id)!;
-        const from = b.getData().position;
-        if (from.x === to.x && from.y === to.y) continue; // unchanged
-        b.setPosition(to);
-      }
-      // last rects and invert
-      const lastRects = new Map<string, DOMRect>();
-      for (const b of items) {
-        lastRects.set(b.getData().id, b.getElement().getBoundingClientRect());
-      }
-      // apply transforms
-      for (const b of items) {
-        const id = b.getData().id;
-        const fromRect = firstRects.get(id)!;
-        const toRect = lastRects.get(id)!;
-        const el = b.getElement();
-        el.style.transition = 'none';
-        el.style.transform = `translate(${fromRect.left - toRect.left}px, ${fromRect.top - toRect.top}px)`;
-      }
-      // play
-      // eslint-disable-next-line @typescript-eslint/no-unused-expressions
-      this.container.offsetHeight;
-      for (const b of items) {
-        const el = b.getElement();
-        el.style.transition = `transform ${this.arrangeAnimationMs}ms ease`;
-        el.style.transform = '';
-        setTimeout(() => {
-          el.style.transition = '';
-        }, this.arrangeAnimationMs + 80);
-      }
-    } finally {
-      this.isArranging = false;
-    }
+  private hideGridLines(): void {
+    this.grid.hideGridLines(this.container);
   }
 
-  // By-row: 각 블록을 현재 세로 대역(y..y+height-1)에서 가능한 한 왼쪽으로만 당겨 정렬(행 고정 수평 컴팩션)
-  private arrangeByRow(): void {
-    const cfg = this.grid.getConfig();
-    if (cfg.columns <= 0) return;
-    if (this.allowOverlap) return;
-    const blocks = Array.from(this.blocks.values());
-    if (blocks.length === 0) return;
+  // Auto grow rows 드래그 중 그리드 업데이트 (성능 최적화)
+  private updateGridDuringDrag(event: any): void {
+    // 이미 예약된 업데이트가 있으면 취소
+    if (this.gridUpdateTimeout) {
+      cancelAnimationFrame(this.gridUpdateTimeout);
+    }
 
-    this.isArranging = true;
-    try {
-      // 안정적 순서: 같은 행 대역부터 처리(y asc), 행 내에서는 x asc, 그다음 id
-      const items = blocks
-        .map((b) => b)
-        .sort((a, b) => {
-          const ap = a.getData().position,
-            bp = b.getData().position;
-          if (ap.y !== bp.y) return ap.y - bp.y;
-          if (ap.x !== bp.x) return ap.x - bp.x;
-          return a.getData().id.localeCompare(b.getData().id);
-        });
+    // requestAnimationFrame으로 쓰로틀링
+    this.gridUpdateTimeout = requestAnimationFrame(() => {
+      const newMaxRow = this.calculateMaxUsedRowFromDragEvent(event);
 
-      const proposed = new Map<string, CoreTypes.GridPosition>();
+      // 최대 행 수가 변경되었을 때만 그리드 재렌더링
+      if (newMaxRow !== this.lastMaxUsedRow) {
+        this.lastMaxUsedRow = newMaxRow;
 
-      const collidesWithProposed = (pos: CoreTypes.GridPosition, size: CoreTypes.GridSize) => {
-        for (const [id, p] of proposed.entries()) {
-          const b = this.blocks.get(id)!;
-          const s = b.getData().size;
-          const endX = pos.x + size.width - 1;
-          const endY = pos.y + size.height - 1;
-          const oEndX = p.x + s.width - 1;
-          const oEndY = p.y + s.height - 1;
-          const h = !(pos.x > oEndX || endX < p.x);
-          const v = !(pos.y > oEndY || endY < p.y);
-          if (h && v) return true;
-        }
-        return false;
-      };
-
-      for (const b of items) {
-        const d = b.getData();
-        const y = d.position.y; // 행 대역 고정
-        const size = d.size;
-        let bestX = d.position.x;
-        for (let x = 1; x <= d.position.x; x++) {
-          const candidate = { x, y, zIndex: d.position.zIndex } as CoreTypes.GridPosition;
-          // 그리드 경계 확인
-          const within = candidate.x >= 1 && candidate.x + size.width - 1 <= cfg.columns;
-          if (!within) continue;
-          if (!collidesWithProposed(candidate, size)) {
-            bestX = x;
-            break;
-          }
-        }
-        proposed.set(d.id, { x: bestX, y, zIndex: d.position.zIndex });
+        // 빠른 업데이트: 기존 블록들과 새 최대 행 수로만 계산
+        const currentBlocks = this.blockManager.getAllBlocks();
+        this.grid.renderGridLines(this.container, currentBlocks);
       }
 
-      this.commitArrangeWithFLIP(items, proposed);
-    } finally {
-      this.isArranging = false;
-    }
+      this.gridUpdateTimeout = null;
+    });
   }
 
-  // By-column: 각 블록을 현재 가로 대역(x..x+width-1)에서 가능한 한 위로만 당겨 정렬(열 고정 수직 컴팩션)
-  private arrangeByColumn(): void {
-    const cfg = this.grid.getConfig();
-    if (cfg.columns <= 0) return;
-    if (this.allowOverlap) return;
-    const blocks = Array.from(this.blocks.values());
-    if (blocks.length === 0) return;
+  // 드래그 이벤트로부터 빠르게 최대 행 수 계산
+  private calculateMaxUsedRowFromDragEvent(event: any): number {
+    let maxRow = 0;
 
-    this.isArranging = true;
-    try {
-      // 안정적 순서(수직 안정성): 위에서 아래로(y asc), 동일 y에서는 x asc, 그다음 id
-      // 이렇게 하면 아래에 있던 블록이 위의 블록을 뛰어넘어 올라가지 않음
-      const items = blocks
-        .map((b) => b)
-        .sort((a, b) => {
-          const ap = a.getData().position,
-            bp = b.getData().position;
-          if (ap.y !== bp.y) return ap.y - bp.y;
-          if (ap.x !== bp.x) return ap.x - bp.x;
-          return a.getData().id.localeCompare(b.getData().id);
-        });
-
-      const proposed = new Map<string, CoreTypes.GridPosition>();
-
-      const collidesWithProposed = (pos: CoreTypes.GridPosition, size: CoreTypes.GridSize) => {
-        for (const [id, p] of proposed.entries()) {
-          const b = this.blocks.get(id)!;
-          const s = b.getData().size;
-          const endX = pos.x + size.width - 1;
-          const endY = pos.y + size.height - 1;
-          const oEndX = p.x + s.width - 1;
-          const oEndY = p.y + s.height - 1;
-          const h = !(pos.x > oEndX || endX < p.x);
-          const v = !(pos.y > oEndY || endY < p.y);
-          if (h && v) return true;
-        }
-        return false;
-      };
-
-      for (const b of items) {
-        const d = b.getData();
-        const x = d.position.x; // 열 대역 고정
-        const size = d.size;
-        let bestY = d.position.y;
-        const rowsCap = this.autoGrowRows ? Infinity : (cfg.rows ?? Infinity);
-        // 1) 위쪽으로만 스캔하며 가능한 가장 위(y가 작은) 위치 찾기
-        for (let y = 1; y <= d.position.y; y++) {
-          const candidate = { x, y, zIndex: d.position.zIndex } as CoreTypes.GridPosition;
-          const within =
-            candidate.y >= 1 &&
-            candidate.y + size.height - 1 <=
-              (rowsCap === Infinity ? Number.MAX_SAFE_INTEGER : (rowsCap as number));
-          if (!within) continue;
-          if (!collidesWithProposed(candidate, size)) {
-            bestY = y;
-            break;
-          }
-        }
-        // 2) 위쪽에서 자리를 못 찾았고, 현재 위치가 이미 충돌한다면(겹침 방지)
-        //    같은 대역에서 최소한으로 아래로 내리며 빈 위치를 탐색하는 폴백
-        if (
-          bestY === d.position.y &&
-          collidesWithProposed(
-            { x, y: bestY, zIndex: d.position.zIndex } as CoreTypes.GridPosition,
-            size,
-          )
-        ) {
-          const hardCap =
-            rowsCap === Infinity ? cfg.rows || d.position.y + 2000 : (rowsCap as number);
-          for (let y = d.position.y + 1; y <= hardCap; y++) {
-            const candidate = { x, y, zIndex: d.position.zIndex } as CoreTypes.GridPosition;
-            const within = candidate.y >= 1 && candidate.y + size.height - 1 <= hardCap;
-            if (!within) continue;
-            if (!collidesWithProposed(candidate, size)) {
-              bestY = y;
-              break;
-            }
-          }
-        }
-        proposed.set(d.id, { x, y: bestY, zIndex: d.position.zIndex });
+    // 기존 블록들의 최대 행 확인 (드래그 중인 블록 제외)
+    const currentBlocks = this.blockManager.getAllBlocks();
+    for (const block of currentBlocks) {
+      if (
+        block.id === event.blockId ||
+        (event.selectedIds && event.selectedIds.includes(block.id))
+      ) {
+        continue; // 드래그 중인 블록들은 건너뛰기
       }
-
-      this.commitArrangeWithFLIP(items, proposed);
-    } finally {
-      this.isArranging = false;
+      maxRow = Math.max(maxRow, block.position.y + block.size.height - 1);
     }
+
+    // 드래그 중인 주 블록의 새 위치 확인
+    const dragEndRow = event.position.y + event.size.height - 1;
+    maxRow = Math.max(maxRow, dragEndRow);
+
+    // 그룹 드래그인 경우 다른 선택된 블록들도 확인
+    if (event.isGroupDrag && event.selectedIds) {
+      const mainBlock = (currentBlocks as any).find((b: any) => b.id === event.blockId);
+      if (mainBlock) {
+        const deltaY = event.position.y - mainBlock.position.y;
+
+        for (const selectedId of event.selectedIds) {
+          if (selectedId === event.blockId) continue;
+
+          const selectedBlock = (currentBlocks as any).find((b: any) => b.id === selectedId);
+          if (selectedBlock) {
+            const newY = selectedBlock.position.y + deltaY;
+            const selectedEndRow = newY + selectedBlock.size.height - 1;
+            maxRow = Math.max(maxRow, selectedEndRow);
+          }
+        }
+      }
+    }
+
+    return maxRow;
   }
 
-  // 공통 FLIP 커밋 헬퍼
-  private commitArrangeWithFLIP(items: Block[], proposed: Map<string, CoreTypes.GridPosition>) {
-    const firstRects = new Map<string, DOMRect>();
-    for (const b of items) firstRects.set(b.getData().id, b.getElement().getBoundingClientRect());
-    for (const b of items) {
-      const id = b.getData().id;
-      const to = proposed.get(id)!;
-      const from = b.getData().position;
-      if (to && !(from.x === to.x && from.y === to.y)) b.setPosition(to);
-    }
-    const lastRects = new Map<string, DOMRect>();
-    for (const b of items) lastRects.set(b.getData().id, b.getElement().getBoundingClientRect());
-    for (const b of items) {
-      const id = b.getData().id;
-      const fromRect = firstRects.get(id)!;
-      const toRect = lastRects.get(id)!;
-      const el = b.getElement();
-      el.style.transition = 'none';
-      el.style.transform = `translate(${fromRect.left - toRect.left}px, ${fromRect.top - toRect.top}px)`;
-    }
-    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
-    this.container.offsetHeight;
-    for (const b of items) {
-      const el = b.getElement();
-      el.style.transition = `transform ${this.arrangeAnimationMs}ms ease`;
-      el.style.transform = '';
-      setTimeout(() => (el.style.transition = ''), this.arrangeAnimationMs + 80);
-    }
+  // =============================================================================
+  // Manager 접근 메서드 (고급 사용자용)
+  // =============================================================================
+
+  getStateManager(): StateManager {
+    return this.stateManager;
   }
 
-  // Masonry-style auto arrange: pack blocks column-wise minimizing column heights
-  private arrangeMasonry(): void {
-    const cfg = this.grid.getConfig();
-    if (cfg.columns <= 0) return;
-    // 중첩 허용이면 수행하지 않음
-    if (this.allowOverlap) return;
-    const blocks = Array.from(this.blocks.values());
-    if (blocks.length === 0) return;
+  getConfigManager(): ConfigManager {
+    return this.configManager;
+  }
 
-    this.isArranging = true;
-    try {
-      // 안정적 순서를 위해 현재 순서(추가된 순서에 가깝게): y asc, x asc, id asc
-      const items = blocks
-        .map((b) => b)
-        .sort((a, b) => {
-          const ap = a.getData().position;
-          const bp = b.getData().position;
-          if (ap.y !== bp.y) return ap.y - bp.y;
-          if (ap.x !== bp.x) return ap.x - bp.x;
-          return a.getData().id.localeCompare(b.getData().id);
-        });
+  getBlockManager(): BlockManager {
+    return this.blockManager;
+  }
 
-      // 각 column의 누적 높이(y 시작값). 1-indexed column 기준.
-      const colHeights = new Array<number>(cfg.columns).fill(1);
-      // 각 row 라인별 최대 높이 계산을 돕기 위해, 실제 Masonry는 column 단위로 쌓음.
+  getSelectionManager(): SelectionManager {
+    return this.selectionManager;
+  }
 
-      // 배치 제안 맵
-      const proposed = new Map<string, CoreTypes.GridPosition>();
-      let requiredBottom = 0;
+  getPreviewManager(): PreviewManager {
+    return this.previewManager;
+  }
 
-      for (const b of items) {
-        const d = b.getData();
-        const w = Math.min(d.size.width, cfg.columns); // 보정
+  getTransitionManager(): TransitionManager {
+    return this.transitionManager;
+  }
 
-        const rowsCap = this.autoGrowRows ? Infinity : (cfg.rows ?? Infinity);
-        // 가능한 모든 시작 column 범위에서 최소 최댓값 높이를 선택
-        let bestX = -1;
-        let bestY = Number.MAX_SAFE_INTEGER;
-        for (let x = 1; x <= cfg.columns - w + 1; x++) {
-          // 해당 구간의 현재 최대 높이(가장 높은 column)
-          let segmentTop = 1;
-          for (let i = 0; i < w; i++) {
-            const idx = x - 1 + i;
-            const h = colHeights[idx] ?? 1;
-            segmentTop = Math.max(segmentTop, h);
-          }
-          // rows 상한을 넘기는 배치는 제외(상한이 있는 경우)
-          const endY = segmentTop + d.size.height - 1;
-          if (endY > rowsCap) continue;
+  // 성능 진단 및 테스트 메서드들
+  getSpatialIndexStats(): {
+    totalCells: number;
+    totalBlocks: number;
+    averageBlocksPerCell: number;
+  } {
+    return this.blockManager.getSpatialIndexStats();
+  }
 
-          if (segmentTop < bestY) {
-            bestY = segmentTop;
-            bestX = x;
-          }
-        }
+  debugSpatialIndex(): void {
+    console.log('🚀 Pegboard SpatialIndex Performance:');
+    this.blockManager.debugSpatialIndex();
+  }
 
-        // 배치 불가(상한 등) 시 현재 위치 유지 + 점유 상태 반영
-        if (bestX === -1) {
-          proposed.set(d.id, { ...d.position });
-          const bottom = d.position.y + d.size.height; // 다음 시작선
-          const x0 = Math.max(1, d.position.x);
-          const w0 = Math.min(d.size.width, cfg.columns - x0 + 1);
-          for (let i = 0; i < w0; i++) {
-            const idx = x0 - 1 + i;
-            colHeights[idx] = Math.max(colHeights[idx] ?? 1, bottom);
-          }
-          requiredBottom = Math.max(requiredBottom, d.position.y + d.size.height - 1);
-          continue;
-        }
+  /**
+   * 성능 벤치마크 실행 (개발/디버깅 용도)
+   */
+  async runPerformanceBenchmark(blockCount: number = 100): Promise<{
+    speedup: string;
+    legacyTime: number;
+    optimizedTime: number;
+  }> {
+    const { PerformanceTest } = await import('./utils/PerformanceTest');
+    const result = PerformanceTest.runBenchmark(blockCount);
 
-        const placeY = bestY;
-        proposed.set(d.id, { x: bestX, y: placeY, zIndex: d.position.zIndex });
-        const newHeight = placeY + d.size.height; // 다음 블록이 쌓일 시작선
-        for (let i = 0; i < w; i++) colHeights[bestX - 1 + i] = newHeight;
-        requiredBottom = Math.max(requiredBottom, placeY + d.size.height - 1);
-      }
-
-      // autoGrowRows: 필요한 경우 rows 확장
-      if (this.autoGrowRows && requiredBottom > (cfg.rows || 0)) {
-        this.grid.updateConfig({ rows: requiredBottom });
-        this.grid.applyGridStyles(this.container);
-        if (this.editable) this.showGridLines();
-        this.emit('grid:changed', { grid: this.grid.getConfig() });
-      }
-
-      // FLIP 애니메이션으로 커밋
-      const firstRects = new Map<string, DOMRect>();
-      for (const b of items) {
-        firstRects.set(b.getData().id, b.getElement().getBoundingClientRect());
-      }
-      // set positions
-      for (const b of items) {
-        const id = b.getData().id;
-        const to = proposed.get(id)!;
-        const from = b.getData().position;
-        if (from.x === to.x && from.y === to.y) continue; // unchanged
-        b.setPosition(to);
-      }
-      // last rects and invert
-      const lastRects = new Map<string, DOMRect>();
-      for (const b of items) {
-        lastRects.set(b.getData().id, b.getElement().getBoundingClientRect());
-      }
-      // apply transforms
-      for (const b of items) {
-        const id = b.getData().id;
-        const fromRect = firstRects.get(id)!;
-        const toRect = lastRects.get(id)!;
-        const el = b.getElement();
-        el.style.transition = 'none';
-        el.style.transform = `translate(${fromRect.left - toRect.left}px, ${fromRect.top - toRect.top}px)`;
-      }
-      // play
-      // eslint-disable-next-line @typescript-eslint/no-unused-expressions
-      this.container.offsetHeight;
-      for (const b of items) {
-        const el = b.getElement();
-        el.style.transition = `transform ${this.arrangeAnimationMs}ms ease`;
-        el.style.transform = '';
-        setTimeout(() => {
-          el.style.transition = '';
-        }, this.arrangeAnimationMs + 80);
-      }
-    } finally {
-      this.isArranging = false;
-    }
+    return {
+      speedup: result.speedup,
+      legacyTime: result.legacy.time,
+      optimizedTime: result.optimized.time,
+    };
   }
 }

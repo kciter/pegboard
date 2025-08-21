@@ -1,4 +1,4 @@
-import { GridConfig, Position, GridPosition, GridSize } from './types';
+import type { GridConfig, Position, GridPosition, GridSize } from './types';
 
 export class Grid {
   constructor(private config: GridConfig) {}
@@ -7,6 +7,10 @@ export class Grid {
 
   setUnboundedRows(enabled: boolean) {
     this.unboundedRows = !!enabled;
+  }
+
+  getUnboundedRows(): boolean {
+    return this.unboundedRows;
   }
 
   getConfig(): GridConfig {
@@ -134,15 +138,21 @@ export class Grid {
     return { width, height };
   }
 
+  /**
+   * 기존 충돌 검사 메서드 (성능 주의!)
+   * ⚠️ O(n) 복잡도로 블록이 많으면 느림
+   * 🚀 BlockManager에서 SpatialIndex 기반 O(1) 검사 사용 권장
+   * @deprecated 호환성을 위해 유지, BlockManager.validatePosition 사용 권장
+   */
   checkGridCollision(
     newPosition: GridPosition,
     newSize: GridSize,
     excludeBlockId: string,
-    existingBlocks: {
+    existingBlocks: ReadonlyArray<Readonly<{
       id: string;
       position: GridPosition;
       size: GridSize;
-    }[],
+    }>>,
   ): boolean {
     const newEndX = newPosition.x + newSize.width - 1;
     const newEndY = newPosition.y + newSize.height - 1;
@@ -166,11 +176,11 @@ export class Grid {
 
   findAvailablePosition(
     size: GridSize,
-    existingBlocks: {
+    existingBlocks: ReadonlyArray<Readonly<{
       id: string;
       position: GridPosition;
       size: GridSize;
-    }[],
+    }>>,
   ): GridPosition {
     const capped = !!this.config.rows && this.config.rows > 0 && !this.unboundedRows;
     const searchMaxRows = capped ? (this.config.rows as number) : 1000; // 넉넉히 검색
@@ -188,7 +198,7 @@ export class Grid {
     return { x: 1, y: 1, zIndex: 1 };
   }
 
-  renderGridLines(container: HTMLElement): void {
+  renderGridLines(container: HTMLElement, existingBlocks?: ReadonlyArray<Readonly<{ position: any; size: any }>>): void {
     const existingOverlay = container.querySelector('.pegboard-grid-overlay');
     if (existingOverlay) existingOverlay.remove();
 
@@ -212,11 +222,20 @@ export class Grid {
     overlay.style.gridAutoRows = `${this.config.rowHeight}px`;
     overlay.style.gap = `${this.config.gap}px`;
 
-    // 렌더할 행 수 계산: rows가 지정되면 그만큼만, 아니면 컨테이너 높이에 맞춰 계산
+    // 렌더할 행 수 계산
     let rowsToRender = 20;
-    if (this.config.rows && this.config.rows > 0) {
+    
+    if (this.config.rows && this.config.rows > 0 && !this.unboundedRows) {
+      // 고정 행 수 모드
       rowsToRender = this.config.rows;
+    } else if (this.unboundedRows && existingBlocks) {
+      // Auto grow rows 모드: 실제 블록들이 차지하는 최대 행 수 계산
+      const maxUsedRow = this.calculateMaxUsedRow(existingBlocks);
+      const minRows = this.config.rows || 8; // 최소 행 수
+      // 블록이 있으면 정확한 최대 행 수, 없으면 최소 행 수 사용
+      rowsToRender = maxUsedRow > 0 ? Math.max(minRows, maxUsedRow) : minRows;
     } else {
+      // 컨테이너 높이 기반 계산
       const rect = container.getBoundingClientRect();
       const styles = getComputedStyle(container);
       const paddingTop = parseInt(styles.paddingTop) || 0;
@@ -237,6 +256,15 @@ export class Grid {
 
     // Place overlay at the very bottom of the container's children for paint order stability
     container.insertBefore(overlay, container.firstChild);
+  }
+
+  private calculateMaxUsedRow(blocks: ReadonlyArray<Readonly<{ position: any; size: any }>>): number {
+    let maxRow = 0;
+    for (const block of blocks) {
+      const blockEndRow = block.position.y + block.size.height - 1;
+      maxRow = Math.max(maxRow, blockEndRow);
+    }
+    return maxRow;
   }
 
   hideGridLines(container: HTMLElement): void {

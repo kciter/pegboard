@@ -96,6 +96,9 @@ export interface EventMap {
   'block:edit:exited': { block: BlockData };
   'interaction:active': { mode: 'move' | 'resize' };
   'interaction:idle': {};
+  'interaction:active:changed': { isActive: boolean };
+  'visual:changed': { visual: any };
+  'grid:autoGrowRows:changed': { enabled: boolean };
   // optional: emitted when a drag reflow is applied or fails
   'reflow:applied'?: {
     strategy: DragReflowStrategy;

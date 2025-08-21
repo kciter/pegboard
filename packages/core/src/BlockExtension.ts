@@ -1,11 +1,10 @@
-import { BlockData } from './types';
+import type { BlockData } from './types';
 
 export abstract class BlockExtension<Attrs extends Record<string, any>> {
   abstract readonly type: string;
   readonly defaultAttributes?: Attrs;
   // Opt-in: set to true if this block supports in-place edit mode
   readonly allowEditMode?: boolean;
-  constructor() {}
 
   /**
    * Must render the block content into the container
