@@ -15,11 +15,12 @@ export type {
   EventDelegationResult,
 } from './types';
 
-export { UIEventListener } from './UIEventListener';
+export { UIEventListener, type UIEventListenerConfig } from './UIEventListener';
 
 export {
   SelectionHandler,
   KeyboardHandler,
   LassoHandler,
   DragHandler,
+  type DragHandlerConfig,
 } from './handlers';

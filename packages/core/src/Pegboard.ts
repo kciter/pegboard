@@ -17,18 +17,25 @@ import { TransitionManager } from './managers';
 // 새로운 Event 시스템
 import {
   UIEventListener,
+  type UIEventListenerConfig,
   SelectionHandler,
   KeyboardHandler,
   LassoHandler,
   DragHandler,
+  type DragHandlerConfig,
 } from './events';
 
 // 새로운 Operations & Commands 시스템
 import { CommandRunner } from './operations/CommandRunner';
+import { Transaction } from './operations/Transaction';
+import { TransactionContext } from './operations/TransactionContext';
 import {
   AddBlockCommand,
   DeleteSelectedCommand,
   DuplicateBlockCommand,
+  UpdateBlockCommand,
+  MoveBlockCommand,
+  ResizeBlockCommand,
   MoveBlocksCommand,
   SelectByCriteriaCommand,
   ClearSelectionCommand,
@@ -66,6 +73,9 @@ export class Pegboard extends EventEmitter {
 
   // Command/Operation System
   private commandRunner: CommandRunner;
+  
+  // Transaction System
+  private currentTransaction: Transaction | null = null;
 
   // Core Grid (still used)
   private grid: Grid;
@@ -140,29 +150,30 @@ export class Pegboard extends EventEmitter {
     );
 
     // 9-4. DragHandler 초기화
-    this.dragHandler = new DragHandler(
-      this.container,
-      this.blockManager,
-      this.selectionHandler,
-      this.grid,
-      () => ({
+    this.dragHandler = new DragHandler({
+      container: this.container,
+      blockManager: this.blockManager,
+      selectionHandler: this.selectionHandler,
+      grid: this.grid,
+      getConfiguration: () => ({
         allowOverlap: this.getAllowOverlap(),
         dragReflow: this.configManager.getBehaviorConfig().dragReflow !== 'none',
       }),
-      (anchorBlockId: string, newPosition: any, strategy?: any) =>
+      reflowCallback: (anchorBlockId: string, newPosition: any, strategy?: any) =>
         this.reflow(anchorBlockId, newPosition, strategy),
-      (blockId: string, from: any, to: any) => this.moveBlockWithTransition(blockId, from, to),
-      (blockId: string, originalPosition: any) =>
+      moveBlockCallback: (blockId: string, from: any, to: any) => 
+        this.moveBlockWithTransition(blockId, from, to),
+      rollbackCallback: (blockId: string, originalPosition: any) =>
         this.rollbackBlockWithTransition(blockId, originalPosition),
-    );
+    });
 
     // 9-5. UIEventListener 초기화 및 핸들러 등록
-    this.uiEventListener = new UIEventListener(
-      this.container,
-      (id: string) => this.blockManager.getBlockInstance(id),
-      () => this.blockManager.getAllBlockInstances(),
-      () => this.clearSelection(),
-    );
+    this.uiEventListener = new UIEventListener({
+      container: this.container,
+      getBlockInstance: (id: string) => this.blockManager.getBlockInstance(id),
+      getAllBlockInstances: () => this.blockManager.getAllBlockInstances(),
+      clearSelectionCallback: () => this.clearSelection(),
+    });
 
     this.uiEventListener.setSelectionHandler(this.selectionHandler);
     this.uiEventListener.setKeyboardHandler(this.keyboardHandler);
@@ -197,6 +208,14 @@ export class Pegboard extends EventEmitter {
     data: PartialKeys<CoreTypes.BlockData<Attrs>, 'id' | 'attributes'>,
   ): Promise<string> {
     const command = new AddBlockCommand(data);
+    
+    // 트랜잭션 중인 경우 커맨드를 트랜잭션에 추가
+    if (this.currentTransaction) {
+      this.currentTransaction.addCommand(command);
+      // 트랜잭션 중에는 ID를 미리 생성해서 반환 (실제 실행은 트랜잭션 커밋 시)
+      return data.id || generateId();
+    }
+
     const result = await this.commandRunner.execute(command);
 
     if (!result.success) {
@@ -222,6 +241,13 @@ export class Pegboard extends EventEmitter {
     this.selectionManager.selectSingle(id);
 
     const command = new DeleteSelectedCommand();
+    
+    // 트랜잭션 중인 경우 커맨드를 트랜잭션에 추가
+    if (this.currentTransaction) {
+      this.currentTransaction.addCommand(command);
+      return true; // 트랜잭션 중에는 성공으로 가정
+    }
+
     const result = await this.commandRunner.execute(command);
 
     // Auto arrange 트리거 (활성화된 경우)
@@ -239,8 +265,16 @@ export class Pegboard extends EventEmitter {
     return result.success;
   }
 
-  updateBlock(id: string, updates: Partial<CoreTypes.BlockData>): boolean {
-    const result = this.blockManager.updateBlock(id, updates);
+  async updateBlock(id: string, updates: Partial<CoreTypes.BlockData>): Promise<boolean> {
+    const command = new UpdateBlockCommand(id, updates);
+    
+    // 트랜잭션 중인 경우 커맨드를 트랜잭션에 추가
+    if (this.currentTransaction) {
+      this.currentTransaction.addCommand(command);
+      return true; // 트랜잭션 중에는 성공으로 간주 (실제 실행은 트랜잭션 커밋 시)
+    }
+
+    const result = await this.commandRunner.execute(command);
     return result.success;
   }
 
@@ -273,6 +307,14 @@ export class Pegboard extends EventEmitter {
 
   async duplicateBlock(id: string): Promise<string | null> {
     const command = new DuplicateBlockCommand(id);
+    
+    // 트랜잭션 중인 경우 커맨드를 트랜잭션에 추가
+    if (this.currentTransaction) {
+      this.currentTransaction.addCommand(command);
+      // 트랜잭션 중에는 임시 ID 반환 (실제 실행은 트랜잭션 커밋 시)
+      return generateId();
+    }
+
     const result = await this.commandRunner.execute(command);
     return result.success ? result.data?.blockId || null : null;
   }
@@ -284,6 +326,13 @@ export class Pegboard extends EventEmitter {
 
   async clearSelection(): Promise<boolean> {
     const command = new ClearSelectionCommand();
+    
+    // 트랜잭션 중인 경우 커맨드를 트랜잭션에 추가
+    if (this.currentTransaction) {
+      this.currentTransaction.addCommand(command);
+      return true; // 트랜잭션 중에는 성공으로 간주 (실제 실행은 트랜잭션 커밋 시)
+    }
+
     const result = await this.commandRunner.execute(command);
     return result.success;
   }
@@ -524,13 +573,29 @@ export class Pegboard extends EventEmitter {
   }
 
   // 블록 이동/리사이즈 (즉시 실행)
-  moveBlockToPosition(id: string, gridPosition: CoreTypes.GridPosition): boolean {
-    const result = this.blockManager.moveBlock(id, gridPosition);
+  async moveBlockToPosition(id: string, gridPosition: CoreTypes.GridPosition): Promise<boolean> {
+    const command = new MoveBlockCommand(id, gridPosition);
+    
+    // 트랜잭션 중인 경우 커맨드를 트랜잭션에 추가
+    if (this.currentTransaction) {
+      this.currentTransaction.addCommand(command);
+      return true; // 트랜잭션 중에는 성공으로 간주 (실제 실행은 트랜잭션 커밋 시)
+    }
+
+    const result = await this.commandRunner.execute(command);
     return result.success;
   }
 
-  resizeBlock(id: string, gridSize: CoreTypes.GridSize): boolean {
-    const result = this.blockManager.resizeBlock(id, gridSize);
+  async resizeBlock(id: string, gridSize: CoreTypes.GridSize): Promise<boolean> {
+    const command = new ResizeBlockCommand(id, gridSize);
+    
+    // 트랜잭션 중인 경우 커맨드를 트랜잭션에 추가
+    if (this.currentTransaction) {
+      this.currentTransaction.addCommand(command);
+      return true; // 트랜잭션 중에는 성공으로 간주 (실제 실행은 트랜잭션 커밋 시)
+    }
+
+    const result = await this.commandRunner.execute(command);
     return result.success;
   }
 
@@ -757,6 +822,81 @@ export class Pegboard extends EventEmitter {
     return result.success;
   }
 
+  // =============================================================================
+  // Transaction API
+  // =============================================================================
+
+  /**
+   * 트랜잭션 실행 - 여러 작업을 하나의 원자적 단위로 묶어서 실행
+   * 
+   * @example
+   * ```typescript
+   * await pegboard.transaction(async (rollback) => {
+   *   await pegboard.addBlock({ type: 'text', position: { x: 1, y: 1 }, size: { width: 2, height: 1 } });
+   *   await pegboard.moveBlockToPosition('block-id', { x: 3, y: 3 });
+   *   
+   *   if (someCondition) {
+   *     rollback(); // 트랜잭션 롤백
+   *     return;
+   *   }
+   *   
+   *   await pegboard.resizeBlock('block-id', { width: 3, height: 2 });
+   * });
+   * ```
+   * 
+   * @param fn 트랜잭션 내에서 실행할 함수 (rollback 함수를 파라미터로 받음)
+   * @returns 트랜잭션 성공 여부
+   */
+  async transaction(
+    fn: (rollback: () => void) => Promise<void> | void
+  ): Promise<boolean> {
+    // 이미 트랜잭션이 실행 중인 경우 중첩 트랜잭션 방지
+    if (this.currentTransaction) {
+      throw new Error('Nested transactions are not supported');
+    }
+
+    // 새 트랜잭션 생성
+    this.currentTransaction = new Transaction(
+      this.commandRunner,
+      this.getOperationContext()
+    );
+
+    try {
+      const result = await this.currentTransaction.execute(fn);
+      
+      // 트랜잭션 후 그리드 라인 업데이트
+      if (result.success && this.getAutoGrowRows() && this.getEditable()) {
+        this.showGridLines();
+      }
+
+      return result.success;
+    } finally {
+      // 트랜잭션 정리
+      this.currentTransaction = null;
+    }
+  }
+
+  /**
+   * 현재 트랜잭션 실행 중인지 확인
+   */
+  isInTransaction(): boolean {
+    return this.currentTransaction !== null;
+  }
+
+  /**
+   * OperationContext 생성 (내부용)
+   */
+  private getOperationContext(): any {
+    return {
+      blockManager: this.blockManager,
+      selectionManager: this.selectionManager,
+      grid: this.grid,
+      configManager: this.configManager,
+      stateManager: this.stateManager,
+      transitionManager: this.transitionManager,
+    };
+  }
+
   canUndo(): boolean {
     return this.commandRunner.canUndo();
   }
@@ -961,6 +1101,7 @@ export class Pegboard extends EventEmitter {
       // 드래그가 취소되면 미리보기 숨기기
       isDragActive = false;
       this.previewManager.hidePreview();
+      this.previewManager.clearAllBlockPreviews();
 
       // Auto grow rows 캐시 정리
       if (this.gridUpdateTimeout) {
@@ -971,6 +1112,8 @@ export class Pegboard extends EventEmitter {
 
       (this as any).emit('drag:cancelled', event);
     });
+
+    // PreviewManager 이벤트는 현재 사용하지 않음 (기존 시스템 우선 사용)
   }
 
   private applyInitialSettings(): void {

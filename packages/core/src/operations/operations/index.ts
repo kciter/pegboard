@@ -1,6 +1,8 @@
 export { CreateBlockOperation } from './CreateBlockOperation';
 export { DeleteBlockOperation } from './DeleteBlockOperation';
 export { MoveBlockOperation } from './MoveBlockOperation';
+export { UpdateBlockOperation } from './UpdateBlockOperation';
+export { ResizeBlockOperation } from './ResizeBlockOperation';
 export { SelectionOperation } from './SelectionOperation';
 export { ClearSelectionOperation } from './ClearSelectionOperation';
 export { BatchOperation } from './BatchOperation';

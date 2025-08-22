@@ -106,6 +106,7 @@ export interface EventMap {
     anchorId: string;
   };
   'reflow:failed'?: { strategy: DragReflowStrategy; reason?: string; anchorId: string };
+  
 }
 
 export interface SerializedPegboardData {

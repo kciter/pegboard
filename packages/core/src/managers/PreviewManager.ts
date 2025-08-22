@@ -137,6 +137,14 @@ export class PreviewManager extends EventEmitter {
   }
 
   /**
+   * 모든 블록 프리뷰 정리 (기존 호환성 유지)
+   */
+  clearAllBlockPreviews(): void {
+    // 기존 프리뷰만 정리
+    this.hidePreview();
+  }
+
+  /**
    * 정리
    */
   destroy(): void {

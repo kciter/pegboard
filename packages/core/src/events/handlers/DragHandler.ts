@@ -5,6 +5,27 @@ import type { Grid } from '../../Grid';
 import { EventEmitter } from '../../EventEmitter';
 
 /**
+ * DragHandler 생성자 파라미터 인터페이스
+ */
+export interface DragHandlerConfig {
+  container: HTMLElement;
+  blockManager: BlockManager;
+  selectionHandler: SelectionHandler;
+  grid: Grid;
+  getConfiguration: () => {
+    allowOverlap: boolean;
+    dragReflow: boolean;
+  };
+  reflowCallback?: (
+    anchorBlockId: string,
+    newPosition: any,
+    strategy?: any,
+  ) => Promise<boolean>;
+  moveBlockCallback?: (blockId: string, from: any, to: any) => Promise<void>;
+  rollbackCallback?: (blockId: string, originalPosition: any) => Promise<void>;
+}
+
+/**
  * DragHandler: 블록 드래그 및 리사이즈 기능을 처리
  * - 블록 이동 (move)
  * - 블록 크기 조정 (resize)
@@ -14,25 +35,32 @@ import { EventEmitter } from '../../EventEmitter';
 export class DragHandler extends EventEmitter implements IDragHandler {
   private isActive = false;
   private currentContext: DragContext | null = null;
+  private container: HTMLElement;
+  private blockManager: BlockManager;
+  private selectionHandler: SelectionHandler;
+  private grid: Grid;
+  private getConfiguration: () => {
+    allowOverlap: boolean;
+    dragReflow: boolean;
+  };
+  private reflowCallback?: (
+    anchorBlockId: string,
+    newPosition: any,
+    strategy?: any,
+  ) => Promise<boolean>;
+  private moveBlockCallback?: (blockId: string, from: any, to: any) => Promise<void>;
+  private rollbackCallback?: (blockId: string, originalPosition: any) => Promise<void>;
 
-  constructor(
-    private container: HTMLElement,
-    private blockManager: BlockManager,
-    private selectionHandler: SelectionHandler,
-    private grid: Grid,
-    private getConfiguration: () => {
-      allowOverlap: boolean;
-      dragReflow: boolean;
-    },
-    private reflowCallback?: (
-      anchorBlockId: string,
-      newPosition: any,
-      strategy?: any,
-    ) => Promise<boolean>,
-    private moveBlockCallback?: (blockId: string, from: any, to: any) => Promise<void>,
-    private rollbackCallback?: (blockId: string, originalPosition: any) => Promise<void>,
-  ) {
+  constructor(config: DragHandlerConfig) {
     super();
+    this.container = config.container;
+    this.blockManager = config.blockManager;
+    this.selectionHandler = config.selectionHandler;
+    this.grid = config.grid;
+    this.getConfiguration = config.getConfiguration;
+    this.reflowCallback = config.reflowCallback;
+    this.moveBlockCallback = config.moveBlockCallback;
+    this.rollbackCallback = config.rollbackCallback;
   }
 
   onPointerDown(event: PointerEvent, context: InteractionContext): boolean {
@@ -70,6 +98,9 @@ export class DragHandler extends EventEmitter implements IDragHandler {
 
     // 시각적 피드백 시작
     this.startVisualFeedback(context);
+
+    // 프리뷰 시작 (옵션)
+    // PreviewManager는 추가 기능으로만 사용, 기본 동작에는 영향 없음
 
     (this as any).emit('drag:started', {
       type: context.type,
@@ -170,13 +201,15 @@ export class DragHandler extends EventEmitter implements IDragHandler {
     element.style.transform = `translate(${deltaX}px, ${deltaY}px)`;
     element.style.zIndex = '9999'; // 드래그 중에는 최상위로
 
-    // 그룹 드래그인 경우
+    // 그룹 드래그인 경우 - 모든 블럭이 마우스와 동일하게 이동
     if (context.isGroupDrag) {
       for (const blockId of context.selectedIds) {
         if (blockId === context.blockId) continue;
         const selectedBlock = this.blockManager.getBlockInstance(blockId);
         if (selectedBlock) {
           const selectedElement = selectedBlock.getElement();
+          // 모든 선택된 블럭이 기준 블럭과 동일한 deltaX, deltaY로 이동
+          // 상대적 위치는 이미 DOM에서 유지되고 있음
           selectedElement.style.transform = `translate(${deltaX}px, ${deltaY}px)`;
           selectedElement.style.zIndex = '9998';
         }
@@ -213,12 +246,7 @@ export class DragHandler extends EventEmitter implements IDragHandler {
       }
     }
 
-    // 그룹 드래그인 경우 다른 선택된 블록들도 함께 이동
-    if (context.isGroupDrag) {
-      this.updateGroupPositions(context, gridDelta);
-    }
-
-    // PreviewManager를 통해 미리보기 표시
+    // 성능 최적화: 단순한 미리보기만 표시, 복잡한 그룹 계산 제거
     (this as any).emit('drag:preview', {
       position: newGridPosition,
       size: blockData.size,
@@ -227,53 +255,6 @@ export class DragHandler extends EventEmitter implements IDragHandler {
       isGroupDrag: context.isGroupDrag,
       selectedIds: context.selectedIds,
     });
-
-    // 그룹 드래그인 경우 각 선택된 블록의 미리보기도 개별 이벤트로 발생
-    if (context.isGroupDrag) {
-      for (const blockId of context.selectedIds) {
-        if (blockId === context.blockId) continue;
-
-        const selectedBlock = this.blockManager.getBlockInstance(blockId);
-        if (!selectedBlock) continue;
-
-        const selectedBlockData = selectedBlock.getData();
-        const selectedNewPosition = this.clampPositionToGrid(
-          {
-            x: selectedBlockData.position.x + gridDelta.x,
-            y: selectedBlockData.position.y + gridDelta.y,
-            zIndex: selectedBlockData.position.zIndex || 1,
-          },
-          selectedBlockData.size,
-        );
-
-        // 개별 블록의 위치 유효성 검사
-        let selectedValid = this.grid.isValidGridPosition(
-          selectedNewPosition,
-          selectedBlockData.size,
-        );
-        if (!config.allowOverlap && selectedValid) {
-          const existingBlocks = this.blockManager.getAllBlocks();
-          const hasCollision = this.grid.checkGridCollision(
-            selectedNewPosition,
-            selectedBlockData.size,
-            blockId,
-            existingBlocks,
-          );
-
-          if (hasCollision) {
-            selectedValid = false;
-          }
-        }
-
-        (this as any).emit('drag:preview:group', {
-          position: selectedNewPosition,
-          size: selectedBlockData.size,
-          valid: selectedValid,
-          blockId: blockId,
-          isPrimary: false,
-        });
-      }
-    }
   }
 
   private updateResize(deltaX: number, deltaY: number, context: DragContext): void {
@@ -403,17 +384,18 @@ export class DragHandler extends EventEmitter implements IDragHandler {
           }
           
           // 그룹 드래그인 경우 모든 블록의 유효성도 검사
-          if (isValid && context.isGroupDrag) {
+          if (isValid && context.isGroupDrag && context.startGroupPositions) {
             for (const blockId of context.selectedIds) {
               if (blockId === context.blockId) continue;
               const selectedBlock = this.blockManager.getBlockInstance(blockId);
-              if (selectedBlock) {
+              const selectedStartPos = context.startGroupPositions.get(blockId);
+              if (selectedBlock && selectedStartPos) {
                 const selectedData = selectedBlock.getData();
                 const selectedFinalPosition = this.clampPositionToGrid(
                   {
-                    x: selectedData.position.x + gridDelta.x,
-                    y: selectedData.position.y + gridDelta.y,
-                    zIndex: selectedData.position.zIndex || 1,
+                    x: selectedStartPos.x + gridDelta.x,
+                    y: selectedStartPos.y + gridDelta.y,
+                    zIndex: selectedStartPos.zIndex || 1,
                   },
                   selectedData.size,
                 );
@@ -462,27 +444,27 @@ export class DragHandler extends EventEmitter implements IDragHandler {
             }
 
             // 그룹 드래그인 경우
-            if (context.isGroupDrag) {
+            if (context.isGroupDrag && context.startGroupPositions) {
               for (const blockId of context.selectedIds) {
                 if (blockId === context.blockId) continue;
                 const selectedBlock = this.blockManager.getBlockInstance(blockId);
-                if (selectedBlock) {
+                const selectedStartPos = context.startGroupPositions.get(blockId);
+                if (selectedBlock && selectedStartPos) {
                   const selectedData = selectedBlock.getData();
                   const selectedFinalPosition = this.clampPositionToGrid(
                     {
-                      x: selectedData.position.x + gridDelta.x,
-                      y: selectedData.position.y + gridDelta.y,
-                      zIndex: selectedData.position.zIndex || 1,
+                      x: selectedStartPos.x + gridDelta.x,
+                      y: selectedStartPos.y + gridDelta.y,
+                      zIndex: selectedStartPos.zIndex || 1,
                     },
                     selectedData.size,
                   );
 
                   // 그룹 드래그도 FLIP 애니메이션 적용 (시작 위치 기준)
-                  const selectedOriginalPosition = selectedData.position;
                   if (this.moveBlockCallback) {
                     this.moveBlockCallback(
                       blockId,
-                      selectedOriginalPosition,
+                      selectedStartPos,
                       selectedFinalPosition,
                     ).catch((error) => {
                       console.warn(
@@ -740,58 +722,10 @@ export class DragHandler extends EventEmitter implements IDragHandler {
     }
   }
 
-  private updateGroupPositions(context: DragContext, gridDelta: { x: number; y: number }): void {
-    if (!context.isGroupDrag) return;
+  // =============================================================================
+  // 헬퍼 메서드
+  // =============================================================================
 
-    // 각 선택된 블록의 시작 위치에 delta를 적용 (변형되지 않은 원래 위치 기준)
-    for (const blockId of context.selectedIds) {
-      if (blockId === context.blockId) continue; // 주 드래그 블록은 이미 처리됨
-
-      const block = this.blockManager.getBlockInstance(blockId);
-      if (!block) continue;
-
-      // transform을 제거하여 원래 위치 확보
-      const element = block.getElement();
-      const originalTransform = element.style.transform;
-      element.style.transform = '';
-
-      const blockData = block.getData();
-      const newGridPosition = this.clampPositionToGrid(
-        {
-          x: blockData.position.x + gridDelta.x,
-          y: blockData.position.y + gridDelta.y,
-          zIndex: blockData.position.zIndex || 1,
-        },
-        blockData.size,
-      );
-
-      // 위치 유효성 검사
-      const config = this.getConfiguration();
-      let isValidPosition = this.grid.isValidGridPosition(newGridPosition, blockData.size);
-
-      if (!config.allowOverlap && isValidPosition) {
-        const existingBlocks = this.blockManager.getAllBlocks();
-        const hasCollision = this.grid.checkGridCollision(
-          newGridPosition,
-          blockData.size,
-          blockId,
-          existingBlocks,
-        );
-
-        if (hasCollision) {
-          isValidPosition = false;
-        }
-      }
-
-      // 유효한 위치인 경우에만 미리보기 업데이트
-      if (isValidPosition) {
-        this.updateBlockPosition(blockId, newGridPosition, true);
-      }
-
-      // 원래 transform 복원
-      element.style.transform = originalTransform;
-    }
-  }
 
   private pixelsToGridDelta(deltaX: number, deltaY: number): { x: number; y: number } {
     const gridConfig = this.grid.getConfig();

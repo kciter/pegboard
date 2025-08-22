@@ -16,6 +16,16 @@ import type {
 import type { Block } from '../Block';
 
 /**
+ * UIEventListener 생성자 파라미터 인터페이스
+ */
+export interface UIEventListenerConfig {
+  container: HTMLElement;
+  getBlockInstance: (id: string) => Block | null;
+  getAllBlockInstances: () => Block[];
+  clearSelectionCallback?: () => Promise<boolean>;
+}
+
+/**
  * UIEventListener: 모든 DOM 이벤트를 캡처하고 적절한 핸들러에 위임
  * - 이벤트 캡처 및 정규화
  * - 상호작용 컨텍스트 분석
@@ -48,6 +58,11 @@ export class UIEventListener extends EventEmitter implements IUIEventListener {
   } | null = null;
   private readonly DRAG_THRESHOLD = 3; // pixels
 
+  // Callback functions
+  private getBlockInstance: (id: string) => Block | null;
+  private getAllBlockInstances: () => Block[];
+  private clearSelectionCallback?: () => Promise<boolean>;
+
   // Event listeners (bound methods for proper cleanup)
   private boundMouseDown: (e: MouseEvent) => void;
   private boundMouseMove: (e: MouseEvent) => void;
@@ -55,14 +70,12 @@ export class UIEventListener extends EventEmitter implements IUIEventListener {
   private boundKeyDown: (e: globalThis.KeyboardEvent) => void;
   private boundKeyUp: (e: globalThis.KeyboardEvent) => void;
 
-  constructor(
-    container: HTMLElement,
-    private getBlockInstance: (id: string) => Block | null,
-    private getAllBlockInstances: () => Block[],
-    private clearSelectionCallback?: () => Promise<boolean>,
-  ) {
+  constructor(config: UIEventListenerConfig) {
     super();
-    this.container = container;
+    this.container = config.container;
+    this.getBlockInstance = config.getBlockInstance;
+    this.getAllBlockInstances = config.getAllBlockInstances;
+    this.clearSelectionCallback = config.clearSelectionCallback;
 
     // Bind event handlers
     this.boundMouseDown = this.handleMouseDown.bind(this);

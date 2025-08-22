@@ -1,17 +1,16 @@
 import type { IOperation, OperationContext, OperationResult } from '../types';
-import { generateId } from '../../utils';
+import { BaseOperation } from '../BaseOperation';
 
 /**
  * ClearSelectionOperation: 선택 해제 작업
  */
-export class ClearSelectionOperation implements IOperation {
-  public readonly id: string;
-  public readonly name = 'clear-selection' as const;
+export class ClearSelectionOperation extends BaseOperation implements IOperation {
+  public readonly type = 'clear-selection' as const;
 
   private previousSelection: string[] = [];
 
-  constructor(private context: OperationContext) {
-    this.id = generateId();
+  constructor(context: OperationContext) {
+    super('clear-selection', context);
   }
 
   async execute(): Promise<OperationResult> {
@@ -22,18 +21,14 @@ export class ClearSelectionOperation implements IOperation {
       // 선택 해제
       this.context.selectionManager.clearSelection();
 
-      return {
-        success: true,
-        data: {
-          clearedCount: this.previousSelection.length,
-          clearedIds: this.previousSelection,
-        },
-      };
+      return this.createSuccessResult({
+        clearedCount: this.previousSelection.length,
+        clearedIds: this.previousSelection,
+      });
     } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Clear selection failed',
-      };
+      return this.createErrorResult(
+        error instanceof Error ? error.message : 'Clear selection failed'
+      );
     }
   }
 
@@ -49,18 +44,14 @@ export class ClearSelectionOperation implements IOperation {
         }
       }
 
-      return {
-        success: true,
-        data: {
-          restoredCount: this.previousSelection.length,
-          restoredIds: this.previousSelection,
-        },
-      };
+      return this.createSuccessResult({
+        restoredCount: this.previousSelection.length,
+        restoredIds: this.previousSelection,
+      });
     } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Clear selection undo failed',
-      };
+      return this.createErrorResult(
+        error instanceof Error ? error.message : 'Clear selection undo failed'
+      );
     }
   }
 
