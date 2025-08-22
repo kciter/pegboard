@@ -135,15 +135,35 @@ export class KeyboardHandler extends EventEmitter implements IKeyboardHandler {
   }
 
   private handleEscapeKey(event: KeyboardEvent): boolean {
-    const hadSelection = this.selectionHandler.getSelectionCount() > 0;
-    this.selectionHandler.clearSelection();
+    // 📝 우선순위 1: 현재 편집 중인 블록이 있으면 edit 모드 해제
+    const editingBlockId = this.getCurrentEditingBlockId();
+    if (editingBlockId) {
+      (this as any).emit('keyboard:edit-mode:exit', { blockId: editingBlockId });
+      return true;
+    }
     
+    // 📝 우선순위 2: 선택된 블록이 있으면 선택 해제
+    const hadSelection = this.selectionHandler.getSelectionCount() > 0;
     if (hadSelection) {
+      this.selectionHandler.clearSelection();
       (this as any).emit('selection:cleared');
       return true;
     }
     
     return false;
+  }
+
+  /**
+   * 현재 편집 중인 블록 ID 반환
+   */
+  private getCurrentEditingBlockId(): string | null {
+    const allBlocks = this.blockManager.getAllBlockInstances();
+    for (const block of allBlocks) {
+      if (block.isEditing()) {
+        return block.getData().id;
+      }
+    }
+    return null;
   }
 
   // Utility methods

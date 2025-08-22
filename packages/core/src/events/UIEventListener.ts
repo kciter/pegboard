@@ -67,6 +67,7 @@ export class UIEventListener extends EventEmitter implements IUIEventListener {
   private boundMouseDown: (e: MouseEvent) => void;
   private boundMouseMove: (e: MouseEvent) => void;
   private boundMouseUp: (e: MouseEvent) => void;
+  private boundDoubleClick: (e: MouseEvent) => void;
   private boundKeyDown: (e: globalThis.KeyboardEvent) => void;
   private boundKeyUp: (e: globalThis.KeyboardEvent) => void;
 
@@ -81,6 +82,7 @@ export class UIEventListener extends EventEmitter implements IUIEventListener {
     this.boundMouseDown = this.handleMouseDown.bind(this);
     this.boundMouseMove = this.handleMouseMove.bind(this);
     this.boundMouseUp = this.handleMouseUp.bind(this);
+    this.boundDoubleClick = this.handleDoubleClick.bind(this);
     this.boundKeyDown = this.handleKeyDown.bind(this);
     this.boundKeyUp = this.handleKeyUp.bind(this);
   }
@@ -133,6 +135,7 @@ export class UIEventListener extends EventEmitter implements IUIEventListener {
     if (this.isEnabled) return;
 
     this.container.addEventListener('mousedown', this.boundMouseDown);
+    this.container.addEventListener('dblclick', this.boundDoubleClick);
     document.addEventListener('mousemove', this.boundMouseMove);
     document.addEventListener('mouseup', this.boundMouseUp);
     document.addEventListener('keydown', this.boundKeyDown);
@@ -145,6 +148,7 @@ export class UIEventListener extends EventEmitter implements IUIEventListener {
     if (!this.isEnabled) return;
 
     this.container.removeEventListener('mousedown', this.boundMouseDown);
+    this.container.removeEventListener('dblclick', this.boundDoubleClick);
     document.removeEventListener('mousemove', this.boundMouseMove);
     document.removeEventListener('mouseup', this.boundMouseUp);
     document.removeEventListener('keydown', this.boundKeyDown);
@@ -176,7 +180,16 @@ export class UIEventListener extends EventEmitter implements IUIEventListener {
     const pointerEvent = this.normalizePointerEvent(event);
     const context = this.analyzeInteractionContext(event);
 
-    // Check if target is in content editing mode
+    // 📝 Edit 모드 확인: 블록이 편집 중이면 내부 이벤트 허용
+    if (context.blockId) {
+      const block = this.getBlockInstance(context.blockId);
+      if (block?.isEditing()) {
+        // Edit 모드 중에는 블록 내부 요소와의 상호작용 허용
+        return;
+      }
+    }
+    
+    // Check if target is in content editing mode  
     if (context.isContentEditable) return;
 
     const result = this.delegatePointerDown(pointerEvent, context);
@@ -247,12 +260,34 @@ export class UIEventListener extends EventEmitter implements IUIEventListener {
     }
   }
 
+  private handleDoubleClick(event: MouseEvent): void {
+    if (!this.editorMode) return;
+
+    const pointerEvent = this.normalizePointerEvent(event);
+    const context = this.analyzeInteractionContext(event);
+    
+    // 블록 더블클릭 시 edit 모드 토글
+    if (context.blockId) {
+      const result = this.delegateDoubleClick(pointerEvent, context);
+      
+      if (result.preventDefault) {
+        event.preventDefault();
+      }
+      if (result.stopPropagation) {
+        event.stopPropagation();
+      }
+    }
+  }
+
   // Event delegation
 
   private delegatePointerDown(
     event: PointerEvent,
     context: InteractionContext,
   ): EventDelegationResult {
+    // 📝 Edit 모드 자동 해제: 다른 블록 클릭시 현재 편집 중인 블록 해제
+    this.handleEditModeAutoExit(context.blockId);
+    
     // Priority 1: Block interaction (drag/selection)
     if (context.blockId) {
       // 편집 모드가 아닌 경우 블럭 상호작용 차단
@@ -311,6 +346,44 @@ export class UIEventListener extends EventEmitter implements IUIEventListener {
     }
 
     return { handled: false, preventDefault: false, stopPropagation: false };
+  }
+
+  /**
+   * Edit 모드 자동 해제 처리
+   * - 빈 영역 클릭시: 현재 편집 중인 블록 해제
+   * - 다른 블록 클릭시: 현재 편집 중인 블록 해제
+   * - 같은 블록 클릭시: edit 모드 유지
+   */
+  private handleEditModeAutoExit(clickedBlockId?: string): void {
+    // 현재 편집 중인 블록 찾기
+    const editingBlockId = this.getCurrentEditingBlockId();
+    if (!editingBlockId) {
+      return; // 편집 중인 블록이 없으면 아무것도 하지 않음
+    }
+
+    // 같은 블록을 클릭한 경우 edit 모드 유지
+    if (clickedBlockId && clickedBlockId === editingBlockId) {
+      return;
+    }
+
+    // 다른 블록 클릭 또는 빈 영역 클릭시 edit 모드 해제
+    (this as any).emit('block:edit-mode:auto-exit', { 
+      blockId: editingBlockId,
+      reason: clickedBlockId ? 'other-block-clicked' : 'empty-area-clicked'
+    });
+  }
+
+  /**
+   * 현재 편집 중인 블록 ID 반환
+   */
+  private getCurrentEditingBlockId(): string | null {
+    const allBlocks = this.getAllBlockInstances();
+    for (const block of allBlocks) {
+      if (block.isEditing()) {
+        return block.getData().id;
+      }
+    }
+    return null;
   }
 
   private delegatePointerMove(event: PointerEvent): EventDelegationResult {
@@ -397,6 +470,38 @@ export class UIEventListener extends EventEmitter implements IUIEventListener {
       return { handled, preventDefault: handled, stopPropagation: false };
     }
     return { handled: false, preventDefault: false, stopPropagation: false };
+  }
+
+  private delegateDoubleClick(
+    event: PointerEvent,
+    context: InteractionContext
+  ): EventDelegationResult {
+    if (!context.blockId) {
+      return { handled: false, preventDefault: false, stopPropagation: false };
+    }
+
+    const block = this.getBlockInstance(context.blockId);
+    if (!block) {
+      return { handled: false, preventDefault: false, stopPropagation: false };
+    }
+
+    // Edit 모드 지원 여부 확인
+    if (!block.getSupportsEditMode()) {
+      return { handled: false, preventDefault: false, stopPropagation: false };
+    }
+
+    // 현재 edit 모드 상태 토글
+    const isCurrentlyEditing = block.isEditing();
+    const newEditingState = !isCurrentlyEditing;
+    
+    // Edit 모드 변경 이벤트 발생 
+    (this as any).emit('block:edit-mode:toggle', {
+      blockId: context.blockId,
+      editing: newEditingState,
+      previousEditing: isCurrentlyEditing
+    });
+
+    return { handled: true, preventDefault: true, stopPropagation: true };
   }
 
   // Interaction starters

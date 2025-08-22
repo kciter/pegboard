@@ -49,6 +49,19 @@
   outline-offset: 0;
 }
 
+/* 🚀 Virtual Selection (Data Attribute 기반 - DOM 조작 최소화) */
+[data-lasso-active] [data-lasso-selected] {
+  outline: var(--pegboard-outline-width) dashed var(--pegboard-accent);
+  outline-offset: 0;
+  opacity: 0.8;
+  transition: none; /* 애니메이션 비활성화 for 성능 */
+}
+
+/* 성능 최적화: CSS containment로 리페인트 범위 제한 */
+[data-lasso-active] {
+  contain: layout style paint;
+}
+
 /* Selection in edit mode: offset and different color */
 .pegboard-block-editing.pegboard-block-selected {
   outline: var(--pegboard-edit-outline-width) solid var(--pegboard-edit-accent);
@@ -101,6 +114,34 @@
 .pegboard-hint-overlay.invalid {
   border-color: #ff4d4f;
   background: rgba(255,77,79,0.15);
+}
+
+/* Group preview overlays */
+.pegboard-group-bounds-overlay {
+  pointer-events: none;
+  box-sizing: border-box;
+  border: 3px solid var(--pegboard-accent);
+  border-radius: 4px;
+  background: color-mix(in oklab, var(--pegboard-accent) 8%, transparent);
+  z-index: 2; /* 개별 블럭 프리뷰보다 위에 */
+  opacity: 0.8;
+}
+.pegboard-group-bounds-overlay.invalid {
+  border-color: #ff4d4f;
+  background: rgba(255,77,79,0.08);
+}
+
+.pegboard-group-block-overlay {
+  pointer-events: none;
+  box-sizing: border-box;
+  border: 1px dashed var(--pegboard-accent);
+  background: color-mix(in oklab, var(--pegboard-accent) 20%, transparent);
+  z-index: 1; /* 그룹 경계보다 아래에 */
+  opacity: 0.6;
+}
+.pegboard-group-block-overlay.invalid {
+  border-color: #ff4d4f;
+  background: rgba(255,77,79,0.2);
 }
 
 /* Editor move cursor */

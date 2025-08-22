@@ -48,6 +48,20 @@ export class PreviewManager extends EventEmitter {
     valid: boolean;
   } | null = null;
 
+  private currentGroupPreview: {
+    bounds: { x: number; y: number; width: number; height: number };
+    blockPreviews: Array<{
+      blockId: string;
+      position: { x: number; y: number; zIndex: number };
+      size: { width: number; height: number };
+      valid: boolean;
+    }>;
+    valid: boolean;
+  } | null = null;
+
+  private groupHintElements: Map<string, HTMLElement> = new Map();
+  private groupBoundsElement: HTMLElement | null = null;
+
   constructor(
     private container: HTMLElement,
     private strategy: IPreviewStrategy = new DomHintPreview(container)
@@ -105,6 +119,105 @@ export class PreviewManager extends EventEmitter {
   }
 
   /**
+   * 그룹 드래그 프리뷰 표시
+   */
+  showGroupPreview(
+    bounds: { x: number; y: number; width: number; height: number },
+    blockPreviews: Array<{
+      blockId: string;
+      position: { x: number; y: number; zIndex: number };
+      size: { width: number; height: number };
+      valid: boolean;
+    }>,
+    valid: boolean
+  ): void {
+    // 기존 단일 프리뷰 숨기기
+    this.hidePreview();
+    
+    // 그룹 프리뷰 상태 저장
+    this.currentGroupPreview = { bounds, blockPreviews, valid };
+
+    // 그룹 전체 경계 표시
+    this.showGroupBounds(bounds, valid);
+
+    // 각 블럭 프리뷰 표시
+    blockPreviews.forEach(blockPreview => {
+      this.showBlockPreview(blockPreview);
+    });
+
+    (this as any).emit('preview:group:shown', { bounds, blockPreviews, valid });
+  }
+
+  /**
+   * 그룹 프리뷰 숨기기
+   */
+  hideGroupPreview(): void {
+    if (!this.currentGroupPreview) {
+      return;
+    }
+
+    // 그룹 경계 제거
+    if (this.groupBoundsElement) {
+      this.groupBoundsElement.remove();
+      this.groupBoundsElement = null;
+    }
+
+    // 각 블럭 프리뷰 제거
+    this.groupHintElements.forEach(element => {
+      element.remove();
+    });
+    this.groupHintElements.clear();
+
+    this.currentGroupPreview = null;
+    
+    (this as any).emit('preview:group:hidden');
+  }
+
+  /**
+   * 그룹 전체 경계 표시
+   */
+  private showGroupBounds(
+    bounds: { x: number; y: number; width: number; height: number },
+    valid: boolean
+  ): void {
+    if (!this.groupBoundsElement) {
+      this.groupBoundsElement = document.createElement('div');
+      this.groupBoundsElement.className = 'pegboard-group-bounds-overlay';
+      this.groupBoundsElement.setAttribute('aria-hidden', 'true');
+      this.container.appendChild(this.groupBoundsElement);
+    }
+
+    this.groupBoundsElement.style.gridColumn = `${bounds.x} / span ${bounds.width}`;
+    this.groupBoundsElement.style.gridRow = `${bounds.y} / span ${bounds.height}`;
+    this.groupBoundsElement.classList.toggle('invalid', !valid);
+  }
+
+  /**
+   * 개별 블럭 프리뷰 표시
+   */
+  private showBlockPreview(blockPreview: {
+    blockId: string;
+    position: { x: number; y: number; zIndex: number };
+    size: { width: number; height: number };
+    valid: boolean;
+  }): void {
+    let element = this.groupHintElements.get(blockPreview.blockId);
+    
+    if (!element) {
+      element = document.createElement('div');
+      element.className = 'pegboard-group-block-overlay';
+      element.setAttribute('aria-hidden', 'true');
+      element.setAttribute('data-block-id', blockPreview.blockId);
+      this.container.appendChild(element);
+      this.groupHintElements.set(blockPreview.blockId, element);
+    }
+
+    element.style.gridColumn = `${blockPreview.position.x} / span ${blockPreview.size.width}`;
+    element.style.gridRow = `${blockPreview.position.y} / span ${blockPreview.size.height}`;
+    element.classList.toggle('invalid', !blockPreview.valid);
+  }
+
+  /**
    * 현재 미리보기 상태 조회
    */
   getCurrentPreview(): { position: GridPosition; size: GridSize; valid: boolean } | null {
@@ -140,8 +253,10 @@ export class PreviewManager extends EventEmitter {
    * 모든 블록 프리뷰 정리 (기존 호환성 유지)
    */
   clearAllBlockPreviews(): void {
-    // 기존 프리뷰만 정리
+    // 단일 프리뷰 정리
     this.hidePreview();
+    // 그룹 프리뷰 정리
+    this.hideGroupPreview();
   }
 
   /**

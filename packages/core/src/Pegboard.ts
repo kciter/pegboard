@@ -144,9 +144,13 @@ export class Pegboard extends EventEmitter {
       keyboardDelete: this.getKeyboardDelete(),
     }));
 
-    // 9-3. LassoHandler 초기화
-    this.lassoHandler = new LassoHandler(this.container, this.selectionHandler, () =>
-      this.blockManager.getAllBlockInstances(),
+    // 🚀 9-3. LassoHandler 초기화 (SpatialIndex 기반 O(1) 최적화)
+    this.lassoHandler = new LassoHandler(
+      this.container, 
+      this.selectionHandler, 
+      this.grid,
+      this.blockManager.getSpatialIndex(), // SpatialIndex 인스턴스 전달
+      (id: string) => this.blockManager.getBlockInstance(id) // 개별 블록 조회
     );
 
     // 9-4. DragHandler 초기화
@@ -165,6 +169,10 @@ export class Pegboard extends EventEmitter {
         this.moveBlockWithTransition(blockId, from, to),
       rollbackCallback: (blockId: string, originalPosition: any) =>
         this.rollbackBlockWithTransition(blockId, originalPosition),
+      rollbackGroupCallback: (rollbackData: Array<{ blockId: string; originalPosition: any }>) =>
+        this.rollbackGroupWithTransition(rollbackData),
+      moveGroupCallback: (moveData: Array<{ blockId: string; from: any; to: any }>) =>
+        this.moveGroupWithTransition(moveData),
     });
 
     // 9-5. UIEventListener 초기화 및 핸들러 등록
@@ -467,6 +475,62 @@ export class Pegboard extends EventEmitter {
     this.blockManager.unregisterExtension(type);
   }
 
+  // Edit 모드 관리
+  /**
+   * 블록이 현재 edit 모드인지 확인
+   */
+  isBlockEditing(blockId: string): boolean {
+    const block = this.blockManager.getBlockInstance(blockId);
+    return block ? block.isEditing() : false;
+  }
+
+  /**
+   * 현재 edit 모드인 블록 ID 반환
+   */
+  getEditingBlockId(): string | null {
+    const allBlocks = this.blockManager.getAllBlockInstances();
+    for (const block of allBlocks) {
+      if (block.isEditing()) {
+        return block.getData().id;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * 블록을 edit 모드로 진입시킴 (더블클릭과 동일한 효과)
+   */
+  enterBlockEditMode(blockId: string): boolean {
+    const block = this.blockManager.getBlockInstance(blockId);
+    if (!block || !block.getSupportsEditMode() || block.isEditing()) {
+      return false;
+    }
+
+    this.handleEditModeToggle(blockId, true);
+    return true;
+  }
+
+  /**
+   * 블록을 edit 모드에서 나가게 함
+   */
+  exitBlockEditMode(blockId: string): boolean {
+    const block = this.blockManager.getBlockInstance(blockId);
+    if (!block || !block.isEditing()) {
+      return false;
+    }
+
+    this.handleEditModeToggle(blockId, false);
+    return true;
+  }
+
+  /**
+   * 현재 편집 중인 블록을 edit 모드에서 나가게 함
+   */
+  exitCurrentEditMode(): boolean {
+    const editingBlockId = this.getEditingBlockId();
+    return editingBlockId ? this.exitBlockEditMode(editingBlockId) : false;
+  }
+
   // Z-index 관리 - Command 패턴 사용
   async bringToFront(id: string): Promise<boolean> {
     const command = new BringToFrontCommand(id);
@@ -631,6 +695,53 @@ export class Pegboard extends EventEmitter {
       [{ position: originalPosition, size: currentData.size }],
       'flip',
     );
+  }
+
+  /**
+   * 여러 블록을 동시에 원래 위치로 롤백 (그룹 애니메이션)
+   */
+  async rollbackGroupWithTransition(
+    rollbackData: Array<{ blockId: string; originalPosition: CoreTypes.GridPosition }>
+  ): Promise<void> {
+    const blocks: Block[] = [];
+    const originalStates: Array<{ position: CoreTypes.GridPosition; size: CoreTypes.GridSize }> = [];
+
+    for (const { blockId, originalPosition } of rollbackData) {
+      const block = this.blockManager.getBlockInstance(blockId);
+      if (block) {
+        blocks.push(block);
+        originalStates.push({
+          position: originalPosition,
+          size: block.getData().size
+        });
+      }
+    }
+
+    if (blocks.length > 0) {
+      // 모든 블록을 한 번에 롤백하여 동시 애니메이션 실행
+      await this.transitionManager.rollback(blocks, originalStates, 'flip');
+    }
+  }
+
+  /**
+   * 여러 블록을 동시에 새로운 위치로 이동 (그룹 애니메이션)
+   */
+  async moveGroupWithTransition(
+    moveData: Array<{ blockId: string; from: CoreTypes.GridPosition; to: CoreTypes.GridPosition }>
+  ): Promise<void> {
+    const moves: Array<{ block: Block; from: CoreTypes.GridPosition; to: CoreTypes.GridPosition }> = [];
+
+    for (const { blockId, from, to } of moveData) {
+      const block = this.blockManager.getBlockInstance(blockId);
+      if (block) {
+        moves.push({ block, from, to });
+      }
+    }
+
+    if (moves.length > 0) {
+      // 모든 블록을 한 번에 이동하여 동시 애니메이션 실행
+      await this.transitionManager.moveBlocks(moves);
+    }
   }
 
   async resizeBlockWithTransition(
@@ -1035,10 +1146,14 @@ export class Pegboard extends EventEmitter {
 
     this.blockManager.on('block:updated', (event) => {
       this.emit('block:updated', event);
+      // 🚀 LassoHandler 캐시 무효화
+      this.lassoHandler.onBlockChanged(event.block.id);
     });
 
     this.blockManager.on('block:moved', (event) => {
       this.emit('block:moved', event);
+      // 🚀 LassoHandler 캐시 무효화
+      this.lassoHandler.onBlockChanged(event.block.id);
       // Auto grow rows가 활성화된 경우 그리드 라인 업데이트
       if (this.getAutoGrowRows()) {
         this.showGridLines();
@@ -1047,6 +1162,8 @@ export class Pegboard extends EventEmitter {
 
     this.blockManager.on('block:resized', (event) => {
       this.emit('block:resized', event);
+      // 🚀 LassoHandler 캐시 무효화
+      this.lassoHandler.onBlockChanged(event.block.id);
       // Auto grow rows가 활성화된 경우 그리드 라인 업데이트
       if (this.getAutoGrowRows()) {
         this.showGridLines();
@@ -1082,10 +1199,23 @@ export class Pegboard extends EventEmitter {
       }
     });
 
+    // 그룹 드래그 프리뷰 이벤트 처리
+    (this.dragHandler as any).on('drag:preview:group', (event: any) => {
+      if (isDragActive) {
+        this.previewManager.showGroupPreview(event.bounds, event.blockPreviews, event.valid);
+
+        // Auto grow rows가 활성화된 경우 드래그 중에도 그리드 라인 동적 업데이트
+        if (this.getAutoGrowRows() && this.getEditable()) {
+          this.updateGridDuringDrag(event);
+        }
+      }
+    });
+
     (this.dragHandler as any).on('drag:ended', (event: any) => {
       // 드래그가 끝나면 미리보기 숨기기
       isDragActive = false;
       this.previewManager.hidePreview();
+      this.previewManager.hideGroupPreview();
 
       // Auto grow rows 캐시 정리
       if (this.gridUpdateTimeout) {
@@ -1114,6 +1244,23 @@ export class Pegboard extends EventEmitter {
     });
 
     // PreviewManager 이벤트는 현재 사용하지 않음 (기존 시스템 우선 사용)
+    
+    // UIEventListener에서 발생하는 edit 모드 토글 이벤트 처리
+    (this.uiEventListener as any).on('block:edit-mode:toggle', (event: any) => {
+      this.handleEditModeToggle(event.blockId, event.editing);
+    });
+
+    // UIEventListener에서 발생하는 edit 모드 자동 해제 이벤트 처리  
+    (this.uiEventListener as any).on('block:edit-mode:auto-exit', (event: any) => {
+      console.log('📝 Auto-exiting edit mode for block:', event.blockId, 'reason:', event.reason);
+      this.handleEditModeToggle(event.blockId, false);
+    });
+
+    // KeyboardHandler에서 발생하는 ESC 키를 통한 edit 모드 해제 이벤트 처리
+    (this.keyboardHandler as any).on('keyboard:edit-mode:exit', (event: any) => {
+      console.log('📝 ESC key edit mode exit for block:', event.blockId);
+      this.handleEditModeToggle(event.blockId, false);
+    });
   }
 
   private applyInitialSettings(): void {
@@ -1195,6 +1342,102 @@ export class Pegboard extends EventEmitter {
   }
 
   // Auto grow rows 드래그 중 그리드 업데이트 (성능 최적화)
+  /**
+   * 블록 edit 모드 토글 처리
+   * - Extension의 allowEditMode 확인 
+   * - 다른 편집 중인 블록 종료
+   * - Extension lifecycle 호출
+   * - 이벤트 발생
+   */
+  private handleEditModeToggle(blockId: string, newEditingState: boolean): void {
+    const block = this.blockManager.getBlockInstance(blockId);
+    if (!block) {
+      console.warn('Edit mode toggle: Block not found', blockId);
+      return;
+    }
+
+    // Edit 모드 지원 여부 확인
+    if (!block.getSupportsEditMode()) {
+      console.warn('Edit mode toggle: Block does not support edit mode', blockId);
+      return;
+    }
+
+    // 현재 편집 중인 다른 블록들을 모두 편집 모드에서 나가게 함 (한 번에 하나만 편집)
+    if (newEditingState) {
+      const allBlocks = this.blockManager.getAllBlockInstances();
+      for (const otherBlock of allBlocks) {
+        if (otherBlock.isEditing() && otherBlock !== block) {
+          this.exitEditMode(otherBlock);
+        }
+      }
+    }
+
+    // 편집 모드 변경
+    if (newEditingState) {
+      this.enterEditMode(block);
+    } else {
+      this.exitEditMode(block);
+    }
+  }
+
+  /**
+   * 블록을 edit 모드로 진입시킴
+   */
+  private enterEditMode(block: Block): void {
+    const blockId = block.getData().id;
+    const blockType = block.getData().type;
+
+    // 블록 상태 업데이트
+    block.setEditing(true);
+
+    // Extension의 onEnterEditMode 호출
+    const extension = this.blockManager.getExtension(blockType);
+    if (extension && extension.onEnterEditMode) {
+      try {
+        extension.onEnterEditMode(block.getData() as any, block.getContentElement());
+      } catch (error) {
+        console.error('Extension onEnterEditMode error:', error);
+      }
+    }
+
+    // 이벤트 발생
+    (this as any).emit('block:edit-mode:entered', { 
+      blockId,
+      block: block.getData()
+    });
+
+    console.log('📝 Block entered edit mode:', blockId);
+  }
+
+  /**
+   * 블록을 edit 모드에서 나가게 함
+   */
+  private exitEditMode(block: Block): void {
+    const blockId = block.getData().id;
+    const blockType = block.getData().type;
+
+    // 블록 상태 업데이트
+    block.setEditing(false);
+
+    // Extension의 onExitEditMode 호출
+    const extension = this.blockManager.getExtension(blockType);
+    if (extension && extension.onExitEditMode) {
+      try {
+        extension.onExitEditMode(block.getData() as any, block.getContentElement());
+      } catch (error) {
+        console.error('Extension onExitEditMode error:', error);
+      }
+    }
+
+    // 이벤트 발생
+    (this as any).emit('block:edit-mode:exited', { 
+      blockId,
+      block: block.getData()
+    });
+
+    console.log('📝 Block exited edit mode:', blockId);
+  }
+
   private updateGridDuringDrag(event: any): void {
     // 이미 예약된 업데이트가 있으면 취소
     if (this.gridUpdateTimeout) {
@@ -1300,6 +1543,46 @@ export class Pegboard extends EventEmitter {
   debugSpatialIndex(): void {
     console.log('🚀 Pegboard SpatialIndex Performance:');
     this.blockManager.debugSpatialIndex();
+  }
+
+  // 🚀 라쏘 선택 성능 모니터링 API
+
+  /**
+   * 🚀 라쏘 선택 성능 통계 조회 (UI 렌더링 최적화 완료)
+   */
+  getLassoPerformanceStats(): {
+    spatialIndex: {
+      optimization: string;
+      complexity: string;
+    };
+    uiRendering: {
+      optimization: string;
+      duplicateSkipped: boolean;
+    };
+    virtualSelection: {
+      virtualSelectedCount: number;
+      isActive: boolean;
+    };
+    throttling: {
+      updateThrottleMs: number;
+      lastUpdateTime: number;
+    };
+  } {
+    return this.lassoHandler.getPerformanceStats();
+  }
+
+  /**
+   * 라쏘 핸들러 캐시 무효화 (리사이즈, 스크롤 등)
+   */
+  invalidateLassoCache(): void {
+    this.lassoHandler.invalidateCache();
+  }
+
+  /**
+   * 라쏘 핸들러 정리 (메모리 관리)
+   */
+  cleanupLassoHandler(): void {
+    this.lassoHandler.cleanup();
   }
 
   /**

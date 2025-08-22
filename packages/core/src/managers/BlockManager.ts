@@ -98,6 +98,11 @@ export class BlockManager extends EventEmitter {
       this.blocks.set(blockData.id, block);
       this.container.appendChild(block.getElement());
 
+      // Edit 모드 지원 설정 (Extension에서 allowEditMode가 true인 경우)
+      if (extension.allowEditMode) {
+        block.setSupportsEditMode(true);
+      }
+
       // 공간 인덱스에 블록 추가
       this.spatialIndex.addBlock(blockData.id, blockData.position, blockData.size);
 
@@ -618,6 +623,13 @@ export class BlockManager extends EventEmitter {
     averageBlocksPerCell: number;
   } {
     return this.spatialIndex.getStats();
+  }
+
+  /**
+   * 🚀 SpatialIndex 인스턴스 조회 (LassoHandler에서 O(1) 충돌 검사용)
+   */
+  getSpatialIndex(): SpatialIndex {
+    return this.spatialIndex;
   }
 
   debugSpatialIndex(): void {
