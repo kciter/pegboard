@@ -15,3 +15,4 @@ export {
 } from './ZOrderCommand';
 export { AutoArrangeCommand } from './AutoArrangeCommand';
 export { ReflowCommand } from './ReflowCommand';
+export { MoveWithReflowCommand } from './MoveWithReflowCommand';

@@ -180,3 +180,43 @@
 
 /* 드래그 중에는 transform 애니메이션 비활성화 */
 .pegboard-block-dragging { transition: none !important; }
+
+/* Reflow 프리뷰 스타일 */
+.pegboard-reflow-preview {
+  position: relative;
+  box-sizing: border-box;
+  pointer-events: none;
+  border: 2px dashed var(--pegboard-accent);
+  background: color-mix(in oklab, var(--pegboard-accent) 10%, transparent);
+  border-radius: 4px;
+  opacity: 0.8;
+  z-index: 1000;
+  animation: pegboard-reflow-preview-pulse 1s ease-in-out infinite alternate;
+}
+
+.pegboard-reflow-preview.pegboard-reflow-collision-avoid {
+  border-color: #ff9800;
+  background: color-mix(in oklab, #ff9800 10%, transparent);
+}
+
+.pegboard-reflow-preview.pegboard-reflow-space-fill {
+  border-color: #4caf50;
+  background: color-mix(in oklab, #4caf50 10%, transparent);
+}
+
+@keyframes pegboard-reflow-preview-pulse {
+  from { 
+    opacity: 0.6; 
+    transform: scale(0.98);
+  }
+  to { 
+    opacity: 0.9; 
+    transform: scale(1.02);
+  }
+}
+
+/* 원본 블록이 리플로우 프리뷰 중일 때 스타일 */
+[data-reflow-original="true"] {
+  opacity: 0.5 !important;
+  filter: grayscale(0.3);
+}

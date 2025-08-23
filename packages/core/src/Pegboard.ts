@@ -13,6 +13,8 @@ import { BlockManager } from './managers';
 import { SelectionManager } from './managers';
 import { PreviewManager } from './managers';
 import { TransitionManager } from './managers';
+import { ReflowPreviewManager } from './managers/ReflowPreviewManager';
+import { ReflowCalculator } from './utils/ReflowCalculator';
 
 // 새로운 Event 시스템
 import {
@@ -45,6 +47,7 @@ import {
   ArrangeZOrderCommand,
   AutoArrangeCommand,
   ReflowCommand,
+  MoveWithReflowCommand,
 } from './operations/commands';
 
 // Legacy imports removed - using new architecture
@@ -63,6 +66,7 @@ export class Pegboard extends EventEmitter {
   private selectionManager: SelectionManager;
   private previewManager: PreviewManager;
   private transitionManager: TransitionManager;
+  private reflowPreviewManager: ReflowPreviewManager;
 
   // Event System
   private uiEventListener: UIEventListener;
@@ -121,6 +125,9 @@ export class Pegboard extends EventEmitter {
     // 6. PreviewManager 초기화
     this.previewManager = new PreviewManager(this.container);
 
+    // 6-1. ReflowPreviewManager 초기화
+    this.reflowPreviewManager = new ReflowPreviewManager(this.container);
+
     // 7. TransitionManager 초기화
     this.transitionManager = new TransitionManager(
       this.container,
@@ -162,6 +169,7 @@ export class Pegboard extends EventEmitter {
       getConfiguration: () => ({
         allowOverlap: this.getAllowOverlap(),
         dragReflow: this.configManager.getBehaviorConfig().dragReflow !== 'none',
+        dragReflowStrategy: this.configManager.getBehaviorConfig().dragReflow,
       }),
       reflowCallback: (anchorBlockId: string, newPosition: any, strategy?: any) =>
         this.reflow(anchorBlockId, newPosition, strategy),
@@ -173,6 +181,13 @@ export class Pegboard extends EventEmitter {
         this.rollbackGroupWithTransition(rollbackData),
       moveGroupCallback: (moveData: Array<{ blockId: string; from: any; to: any }>) =>
         this.moveGroupWithTransition(moveData),
+      // 🚀 새로운 리플로우 시스템 콜백들
+      reflowPreviewCallback: (blockId: string, from: any, to: any, strategy: string) =>
+        this.handleReflowPreview(blockId, from, to, strategy as 'push-away' | 'smart-fill' | 'none'),
+      reflowPreviewEndCallback: () =>
+        this.handleReflowPreviewEnd(),
+      moveWithReflowCallback: async (blockId: string, from: any, to: any, strategy: string) =>
+        await this.handleMoveWithReflow(blockId, from, to, strategy as 'push-away' | 'smart-fill' | 'none'),
     });
 
     // 9-5. UIEventListener 초기화 및 핸들러 등록
@@ -1436,6 +1451,94 @@ export class Pegboard extends EventEmitter {
     });
 
     console.log('📝 Block exited edit mode:', blockId);
+  }
+
+  /**
+   * 리플로우 프리뷰를 시작/업데이트합니다
+   * 드래그 중에 다른 블록들이 어떻게 이동할지 미리보기를 제공
+   */
+  private handleReflowPreview(
+    blockId: string, 
+    from: CoreTypes.GridPosition, 
+    to: CoreTypes.GridPosition, 
+    strategy: 'push-away' | 'smart-fill' | 'none'
+  ): void {
+    // 리플로우가 비활성화되어 있으면 무시
+    if (strategy === 'none') {
+      return;
+    }
+
+    const movingBlock = this.blockManager.getBlock(blockId);
+    if (!movingBlock) {
+      console.warn('Reflow preview: Moving block not found', blockId);
+      return;
+    }
+
+    // 리플로우 계산
+    const allBlocks = this.blockManager.getAllBlocks();
+    const gridConfig = this.grid.getConfig();
+    const reflowCalculator = new ReflowCalculator(
+      gridConfig.columns,
+      gridConfig.rows,
+      true // unboundedRows
+    );
+    const reflow = reflowCalculator.calculateReflow(
+      blockId,
+      movingBlock.size,
+      from,
+      to,
+      allBlocks,
+      strategy
+    );
+
+    // 프리뷰 표시
+    this.reflowPreviewManager.startReflowPreview(blockId, reflow);
+  }
+
+  /**
+   * 리플로우 프리뷰를 종료합니다
+   * 드래그가 끝나면 호출됩니다
+   */
+  private handleReflowPreviewEnd(): void {
+    this.reflowPreviewManager.endReflowPreview();
+  }
+
+  /**
+   * 리플로우와 함께 블록을 이동시킵니다
+   * 실제 블록 이동과 다른 블록들의 displacement를 실행
+   */
+  private async handleMoveWithReflow(
+    blockId: string, 
+    from: CoreTypes.GridPosition, 
+    to: CoreTypes.GridPosition, 
+    strategy: 'push-away' | 'smart-fill' | 'none'
+  ): Promise<boolean> {
+    try {
+      // 리플로우가 비활성화되어 있으면 일반 이동만 실행
+      if (strategy === 'none') {
+        this.moveBlockWithTransition(blockId, from, to);
+        return true;
+      }
+
+      const movingBlock = this.blockManager.getBlock(blockId);
+      if (!movingBlock) {
+        console.warn('Move with reflow: Moving block not found', blockId);
+        return false;
+      }
+
+      // MoveWithReflowCommand 실행
+      const command = new MoveWithReflowCommand(
+        blockId,
+        to,
+        strategy
+      );
+
+      const result = await this.commandRunner.execute(command);
+      return result.success;
+    } catch (error) {
+      console.error('Move with reflow failed:', error);
+      return false;
+    }
   }
 
   private updateGridDuringDrag(event: any): void {

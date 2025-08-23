@@ -9,3 +9,4 @@ export { BatchOperation } from './BatchOperation';
 export { SetZIndexOperation, BringToFrontOperation, SendToBackOperation } from './ZOrderOperation';
 export { AutoArrangeOperation } from './AutoArrangeOperation';
 export { ReflowOperation } from './ReflowOperation';
+export { MoveWithReflowOperation } from './MoveWithReflowOperation';

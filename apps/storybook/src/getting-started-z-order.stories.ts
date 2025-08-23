@@ -101,6 +101,16 @@ export const ZOrder: StoryObj = {
       pegboard.sendBackward(selected);
     };
 
+    pegboard.transaction((rollback) => {
+      if (!selected) {
+        rollback();
+        return;
+      }
+      pegboard.moveBlockToPosition(selected, { x: 0, y: 3, zIndex: 1 });
+      pegboard.resizeBlock(selected, { width: 6, height: 4 });
+      pegboard.updateBlock(selected, { attributes: { text: 'Moved & Resized' } });
+    });
+
     return root;
   },
 };

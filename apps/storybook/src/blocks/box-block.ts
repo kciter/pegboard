@@ -7,7 +7,6 @@ export interface BoxBlockAttributes {
 
 export class BoxBlock extends BlockExtension<BoxBlockAttributes> {
   readonly type = 'box';
-  readonly defaultLayout = { x: 1, y: 1, width: 3, height: 2 } as const;
   readonly defaultAttributes = { color: '#888', text: 'Box' } as const;
 
   render(data: BlockData<BoxBlockAttributes>, container: HTMLElement) {

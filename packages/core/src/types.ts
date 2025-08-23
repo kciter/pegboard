@@ -44,7 +44,7 @@ export interface GridConfig {
   gap: number;
 }
 
-export type DragReflowStrategy = 'none' | 'axis-shift';
+export type DragReflowStrategy = 'none' | 'push-away' | 'smart-fill';
 export type AutoArrangeStrategy = 'top-left' | 'masonry' | 'by-row' | 'by-column';
 export type GridOverlayMode = 'always' | 'never' | 'active';
 

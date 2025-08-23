@@ -10,6 +10,7 @@ import type {
   BlockData 
 } from '../../types';
 import { generateId } from '../../utils';
+import { ReflowCalculator } from '../../utils/ReflowCalculator';
 
 /**
  * ReflowOperation: 블록 이동에 따른 다른 블록들의 자동 재배치
@@ -111,138 +112,58 @@ export class ReflowOperation implements IOperation {
 
   private async executeReflowStrategy(anchorBlock: BlockData): Promise<Array<{ id: string; from: GridPosition; to: GridPosition }>> {
     switch (this.strategy) {
-      case 'axis-shift':
-        return this.executeAxisShift(anchorBlock);
+      case 'push-away':
+        return this.executePushAway(anchorBlock);
+      case 'smart-fill':
+        return this.executeSmartFill(anchorBlock);
       default:
         return [];
     }
   }
 
-  private executeAxisShift(anchorBlock: BlockData): Array<{ id: string; from: GridPosition; to: GridPosition }> {
-    const reflowedBlocks: Array<{ id: string; from: GridPosition; to: GridPosition }> = [];
-    const allBlocks = this.context.blockManager.getAllBlocks().filter((b: BlockData) => b.id !== this.anchorBlockId);
+  private executePushAway(anchorBlock: BlockData): Array<{ id: string; from: GridPosition; to: GridPosition }> {
+    return this.executeWithReflowCalculator(anchorBlock, 'push-away');
+  }
+
+  private executeSmartFill(anchorBlock: BlockData): Array<{ id: string; from: GridPosition; to: GridPosition }> {
+    return this.executeWithReflowCalculator(anchorBlock, 'smart-fill');
+  }
+
+  private executeWithReflowCalculator(
+    anchorBlock: BlockData, 
+    strategy: 'push-away' | 'smart-fill'
+  ): Array<{ id: string; from: GridPosition; to: GridPosition }> {
     const gridConfig = this.context.grid.getConfig();
+    const allBlocks = this.context.blockManager.getAllBlocks();
+    
+    const calculator = new ReflowCalculator(
+      gridConfig.columns,
+      gridConfig.rows,
+      true // unboundedRows
+    );
 
-    // 앵커 블록의 이동 벡터 계산
     const originalAnchor = this.originalPositions.find(p => p.id === this.anchorBlockId);
-    if (!originalAnchor) return reflowedBlocks;
+    if (!originalAnchor) return [];
 
-    const deltaX = this.newPosition.x - originalAnchor.position.x;
-    const deltaY = this.newPosition.y - originalAnchor.position.y;
+    const reflow = calculator.calculateReflow(
+      this.anchorBlockId,
+      anchorBlock.size,
+      originalAnchor.position,
+      this.newPosition,
+      allBlocks,
+      strategy
+    );
 
-    // 영향을 받는 블록들 찾기 및 이동
-    for (const block of allBlocks) {
-      const originalPos = this.originalPositions.find(p => p.id === block.id)?.position;
-      if (!originalPos) continue;
-
-      let shouldMove = false;
-      let newX = originalPos.x;
-      let newY = originalPos.y;
-
-      // 수평 이동의 경우 (X축 기반 리플로우)
-      if (Math.abs(deltaX) > Math.abs(deltaY)) {
-        if (deltaX > 0) {
-          // 앵커가 오른쪽으로 이동: 앵커 오른쪽에 있는 블록들을 밀어냄
-          if (this.blocksOverlapHorizontally(originalAnchor.position, anchorBlock.size, originalPos, block.size)) {
-            if (originalPos.x >= originalAnchor.position.x) {
-              shouldMove = true;
-              newX = Math.max(1, originalPos.x + deltaX);
-            }
-          }
-        } else {
-          // 앵커가 왼쪽으로 이동: 앵커 왼쪽에 있는 블록들을 당김
-          if (this.blocksOverlapHorizontally(originalAnchor.position, anchorBlock.size, originalPos, block.size)) {
-            if (originalPos.x <= originalAnchor.position.x) {
-              shouldMove = true;
-              newX = Math.max(1, originalPos.x + deltaX);
-            }
-          }
-        }
-      } else {
-        // 수직 이동의 경우 (Y축 기반 리플로우)
-        if (deltaY > 0) {
-          // 앵커가 아래로 이동: 앵커 아래에 있는 블록들을 밀어냄
-          if (this.blocksOverlapVertically(originalAnchor.position, anchorBlock.size, originalPos, block.size)) {
-            if (originalPos.y >= originalAnchor.position.y) {
-              shouldMove = true;
-              newY = Math.max(1, originalPos.y + deltaY);
-            }
-          }
-        } else {
-          // 앵커가 위로 이동: 앵커 위에 있는 블록들을 당김
-          if (this.blocksOverlapVertically(originalAnchor.position, anchorBlock.size, originalPos, block.size)) {
-            if (originalPos.y <= originalAnchor.position.y) {
-              shouldMove = true;
-              newY = Math.max(1, originalPos.y + deltaY);
-            }
-          }
-        }
-      }
-
-      if (shouldMove) {
-        // 그리드 경계 체크
-        if (newX + block.size.width - 1 <= gridConfig.columns) {
-          const hasRowLimit = gridConfig.rows && !this.context.grid.getUnboundedRows();
-          if (!hasRowLimit || newY + block.size.height - 1 <= gridConfig.rows!) {
-            const newPosition: GridPosition = {
-              x: newX,
-              y: newY,
-              zIndex: originalPos.zIndex,
-            };
-
-            // 충돌 검사
-            if (this.isPositionSafe(newPosition, block.size, block.id)) {
-              const moveResult = this.context.blockManager.moveBlock(block.id, newPosition);
-              if (moveResult.success) {
-                reflowedBlocks.push({
-                  id: block.id,
-                  from: originalPos,
-                  to: newPosition,
-                });
-              }
-            }
-          }
-        }
-      }
+    if (!reflow.success) {
+      console.warn('Reflow calculation failed:', reflow.reason);
+      return [];
     }
 
-    return reflowedBlocks;
+    return reflow.affectedBlocks.map(block => ({
+      id: block.blockId,
+      from: block.originalPosition,
+      to: block.newPosition
+    }));
   }
 
-  private blocksOverlapHorizontally(
-    pos1: GridPosition, 
-    size1: GridSize, 
-    pos2: GridPosition, 
-    size2: GridSize
-  ): boolean {
-    // Y축에서 겹치는지 확인 (수평 리플로우를 위해)
-    const pos1EndY = pos1.y + size1.height - 1;
-    const pos2EndY = pos2.y + size2.height - 1;
-    
-    return !(pos1EndY < pos2.y || pos1.y > pos2EndY);
-  }
-
-  private blocksOverlapVertically(
-    pos1: GridPosition, 
-    size1: GridSize, 
-    pos2: GridPosition, 
-    size2: GridSize
-  ): boolean {
-    // X축에서 겹치는지 확인 (수직 리플로우를 위해)
-    const pos1EndX = pos1.x + size1.width - 1;
-    const pos2EndX = pos2.x + size2.width - 1;
-    
-    return !(pos1EndX < pos2.x || pos1.x > pos2EndX);
-  }
-
-  private isPositionSafe(position: GridPosition, size: GridSize, excludeId: string): boolean {
-    // 그리드 유효성 검사
-    if (!this.context.grid.isValidGridPosition(position, size)) {
-      return false;
-    }
-
-    // 충돌 검사
-    const existingBlocks = this.context.blockManager.getAllBlocks();
-    return !this.context.grid.checkGridCollision(position, size, excludeId, existingBlocks);
-  }
 }

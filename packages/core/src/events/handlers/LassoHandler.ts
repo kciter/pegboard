@@ -1,9 +1,4 @@
-import type { 
-  ILassoHandler, 
-  PointerEvent, 
-  LassoContext,
-  InteractionContext
-} from '../types';
+import type { ILassoHandler, PointerEvent, LassoContext, InteractionContext } from '../types';
 import type { GridPosition, GridSize } from '../../types';
 import type { SelectionHandler } from './SelectionHandler';
 import type { Block } from '../../Block';
@@ -21,13 +16,13 @@ import { EventEmitter } from '../../EventEmitter';
 export class LassoHandler extends EventEmitter implements ILassoHandler {
   private selectionBoxEl: HTMLElement | null = null;
   private isActive = false;
-  
+
   // 🚀 성능 최적화 속성들 (DOM 조작 완전 제거)
   private virtualSelectedBlocks = new Set<string>(); // 드래그 중 임시 선택 상태
   private lastUpdateTime = 0;
-  private readonly UPDATE_THROTTLE = 33; // ~30fps (33ms) - 더 공격적 throttling
+  private readonly UPDATE_THROTTLE = 8; // ~30fps (33ms) - 더 공격적 throttling
   private lastRenderedSelection = ''; // 렌더링 중복 방지
-  
+
   // 컨테이너 bounds 캐싱
   private containerBounds: DOMRect | null = null;
   private containerBoundsTimestamp = 0;
@@ -38,7 +33,7 @@ export class LassoHandler extends EventEmitter implements ILassoHandler {
     private selectionHandler: SelectionHandler,
     private grid: Grid,
     private spatialIndex: SpatialIndex,
-    private getBlockInstance: (id: string) => Block | null
+    private getBlockInstance: (id: string) => Block | null,
   ) {
     super();
   }
@@ -46,7 +41,7 @@ export class LassoHandler extends EventEmitter implements ILassoHandler {
   onPointerDown(event: PointerEvent, context: InteractionContext): boolean {
     // 라쏘는 빈 영역에서만 시작
     if (context.blockId) return false;
-    
+
     // 컨텍스트는 UIEventListener에서 생성되므로 여기서는 사용하지 않음
     return false;
   }
@@ -63,12 +58,12 @@ export class LassoHandler extends EventEmitter implements ILassoHandler {
 
   startLasso(event: PointerEvent, context: LassoContext): void {
     this.isActive = true;
-    
+
     // 🚀 가상 선택 상태 초기화 (DOM 조작 없음)
     this.virtualSelectedBlocks.clear();
     this.lastRenderedSelection = '';
     this.clearVirtualSelectionStyles();
-    
+
     // 추가 선택 모드가 아니면 기존 선택 해제
     if (!context.isAdditive) {
       this.selectionHandler.clearSelection();
@@ -81,10 +76,10 @@ export class LassoHandler extends EventEmitter implements ILassoHandler {
 
     // 시각적 선택 박스 생성
     this.createSelectionBox(context.startPosition);
-    
-    (this as any).emit('lasso:started', { 
+
+    (this as any).emit('lasso:started', {
       position: context.startPosition,
-      isAdditive: context.isAdditive 
+      isAdditive: context.isAdditive,
     });
   }
 
@@ -106,10 +101,10 @@ export class LassoHandler extends EventEmitter implements ILassoHandler {
     // 🚀 Virtual Selection: 드래그 중에는 가상 선택만 업데이트
     this.updateVirtualSelection(context);
 
-    (this as any).emit('lasso:updated', { 
+    (this as any).emit('lasso:updated', {
       bounds: context.bounds,
       currentPosition: context.currentPosition,
-      virtualSelection: Array.from(this.virtualSelectedBlocks)
+      virtualSelection: Array.from(this.virtualSelectedBlocks),
     });
   }
 
@@ -130,9 +125,9 @@ export class LassoHandler extends EventEmitter implements ILassoHandler {
 
     this.isActive = false;
 
-    (this as any).emit('lasso:ended', { 
+    (this as any).emit('lasso:ended', {
       bounds: context.bounds,
-      selectedCount: this.selectionHandler.getSelectionCount()
+      selectedCount: this.selectionHandler.getSelectionCount(),
     });
   }
 
@@ -141,13 +136,13 @@ export class LassoHandler extends EventEmitter implements ILassoHandler {
 
     // 🚀 가상 선택 스타일 제거
     this.clearVirtualSelectionStyles();
-    
+
     // 선택 박스 제거
     this.removeSelectionBox();
-    
+
     // 정리
     this.virtualSelectedBlocks.clear();
-    
+
     this.isActive = false;
 
     (this as any).emit('lasso:cancelled');
@@ -158,7 +153,7 @@ export class LassoHandler extends EventEmitter implements ILassoHandler {
   private createSelectionBox(startPosition: { x: number; y: number }): void {
     this.selectionBoxEl = document.createElement('div');
     this.selectionBoxEl.className = 'pegboard-lasso-selection';
-    
+
     // CSS 스타일 적용
     Object.assign(this.selectionBoxEl.style, {
       position: 'absolute',
@@ -195,7 +190,7 @@ export class LassoHandler extends EventEmitter implements ILassoHandler {
 
   private updateSelection(context: LassoContext): void {
     const containerRect = this.container.getBoundingClientRect();
-    
+
     // 전역 좌표계에서 컨테이너 상대 좌표계로 변환
     const localBounds = {
       left: context.bounds.left - containerRect.left,
@@ -206,7 +201,7 @@ export class LassoHandler extends EventEmitter implements ILassoHandler {
 
     // 🚀 O(1) 충돌 감지로 겹치는 블록 ID들 찾기
     const intersectingBlockIds = this.findIntersectingBlocks(localBounds);
-    
+
     if (context.isAdditive) {
       // 추가 선택 모드: 기존 선택 + 새로 겹치는 블록들
       for (const blockId of intersectingBlockIds) {
@@ -218,7 +213,7 @@ export class LassoHandler extends EventEmitter implements ILassoHandler {
       // 일반 모드: 겹치는 블록들만 선택
       // 먼저 모든 선택 해제
       this.selectionHandler.clearSelection();
-      
+
       // 겹치는 블록들 선택
       for (const blockId of intersectingBlockIds) {
         this.selectionHandler.toggleSelection(blockId);
@@ -233,7 +228,7 @@ export class LassoHandler extends EventEmitter implements ILassoHandler {
    */
   private updateVirtualSelection(context: LassoContext): void {
     const containerRect = this.getCachedContainerRect();
-    
+
     // 전역 좌표계에서 컨테이너 상대 좌표계로 변환
     const localBounds = {
       left: context.bounds.left - containerRect.left,
@@ -244,22 +239,22 @@ export class LassoHandler extends EventEmitter implements ILassoHandler {
 
     // 🚀 O(1) 충돌 감지 사용 (SpatialIndex + 그리드 좌표)
     const intersectingBlockIds = this.findIntersectingBlocksUltrafast(localBounds);
-    
+
     // 가상 선택 상태 업데이트
     this.virtualSelectedBlocks.clear();
-    
+
     if (context.isAdditive) {
       // 기존 선택도 포함
       for (const selectedId of this.selectionHandler.getSelectedIds()) {
         this.virtualSelectedBlocks.add(selectedId);
       }
     }
-    
+
     // 새로 겹치는 블록들 추가
     for (const blockId of intersectingBlockIds) {
       this.virtualSelectedBlocks.add(blockId);
     }
-    
+
     // 🚀 최적화된 시각적 피드백 (diff 기반 DOM 업데이트)
     this.applyVirtualSelectionStyles();
   }
@@ -275,60 +270,57 @@ export class LassoHandler extends EventEmitter implements ILassoHandler {
   }): string[] {
     // 1. 픽셀 bounds를 그리드 좌표로 변환
     const topLeft = this.grid.getGridPositionFromPixels(
-      { x: bounds.left, y: bounds.top }, 
-      this.container
+      { x: bounds.left, y: bounds.top },
+      this.container,
     );
     const bottomRight = this.grid.getGridPositionFromPixels(
-      { x: bounds.right, y: bounds.bottom }, 
-      this.container
+      { x: bounds.right, y: bounds.bottom },
+      this.container,
     );
-    
+
     // 2. 라쏘가 덮는 그리드 영역 계산
     const gridArea: GridPosition = {
       x: topLeft.x,
       y: topLeft.y,
-      zIndex: 1
+      zIndex: 1,
     };
     const gridSize: GridSize = {
       width: Math.max(1, bottomRight.x - topLeft.x + 1),
-      height: Math.max(1, bottomRight.y - topLeft.y + 1)
+      height: Math.max(1, bottomRight.y - topLeft.y + 1),
     };
-    
+
     // 3. SpatialIndex로 해당 영역의 블록들만 O(1)로 찾기
-    const potentialBlocks = this.spatialIndex.findPotentialCollisions(
-      gridArea, 
-      gridSize
-    );
-    
+    const potentialBlocks = this.spatialIndex.findPotentialCollisions(gridArea, gridSize);
+
     // 4. 그리드 좌표 기반 정확한 충돌 검사 (DOM 호출 없음)
     const intersecting: string[] = [];
-    
+
     for (const blockId of potentialBlocks) {
       const block = this.getBlockInstance(blockId);
       if (!block) continue;
-      
+
       const blockData = block.getData();
       const blockPos = blockData.position;
       const blockSize = blockData.size;
-      
+
       // 그리드 좌표로 충돌 검사 (픽셀 계산 불필요)
       const blockRight = blockPos.x + blockSize.width - 1;
       const blockBottom = blockPos.y + blockSize.height - 1;
       const areaRight = gridArea.x + gridSize.width - 1;
       const areaBottom = gridArea.y + gridSize.height - 1;
-      
+
       const hasIntersection = !(
         blockRight < gridArea.x ||
         blockPos.x > areaRight ||
         blockBottom < gridArea.y ||
         blockPos.y > areaBottom
       );
-      
+
       if (hasIntersection) {
         intersecting.push(blockId);
       }
     }
-    
+
     return intersecting;
   }
 
@@ -337,15 +329,14 @@ export class LassoHandler extends EventEmitter implements ILassoHandler {
    */
   private getCachedContainerRect(): DOMRect {
     const now = Date.now();
-    
-    if (this.containerBounds && 
-        (now - this.containerBoundsTimestamp) < this.CONTAINER_CACHE_TTL) {
+
+    if (this.containerBounds && now - this.containerBoundsTimestamp < this.CONTAINER_CACHE_TTL) {
       return this.containerBounds;
     }
-    
+
     this.containerBounds = this.container.getBoundingClientRect();
     this.containerBoundsTimestamp = now;
-    
+
     return this.containerBounds;
   }
 
@@ -357,25 +348,25 @@ export class LassoHandler extends EventEmitter implements ILassoHandler {
     const selectionString = Array.from(this.virtualSelectedBlocks)
       .sort() // 일관된 순서로 정렬
       .join('|');
-    
+
     // 🚀 중복 렌더링 방지: 이전과 같으면 완전 스킵
     if (selectionString === this.lastRenderedSelection) {
       return;
     }
-    
+
     this.lastRenderedSelection = selectionString;
-    
+
     // 🚀 requestAnimationFrame으로 배치 DOM 업데이트
     requestAnimationFrame(() => {
       if (!this.isActive) return; // 라쏘가 종료되면 스킵
-      
+
       // 1. 컨테이너에 라쏘 활성 상태 표시
       this.container.setAttribute('data-lasso-active', 'true');
-      
+
       // 2. 모든 블록의 data-lasso-selected 제거 (한 번만)
       const allBlocks = this.container.querySelectorAll('[data-lasso-selected]');
-      allBlocks.forEach(el => el.removeAttribute('data-lasso-selected'));
-      
+      allBlocks.forEach((el) => el.removeAttribute('data-lasso-selected'));
+
       // 3. 선택된 블록들에만 attribute 추가
       for (const blockId of this.virtualSelectedBlocks) {
         const blockEl = this.container.querySelector(`[data-block-id="${blockId}"]`);
@@ -385,17 +376,17 @@ export class LassoHandler extends EventEmitter implements ILassoHandler {
       }
     });
   }
-  
+
   /**
    * 가상 선택 스타일 완전 제거
    */
   private clearVirtualSelectionStyles(): void {
     this.container.removeAttribute('data-lasso-active');
-    
+
     // 모든 가상 선택 attribute 제거
     const selectedBlocks = this.container.querySelectorAll('[data-lasso-selected]');
-    selectedBlocks.forEach(el => el.removeAttribute('data-lasso-selected'));
-    
+    selectedBlocks.forEach((el) => el.removeAttribute('data-lasso-selected'));
+
     this.lastRenderedSelection = '';
   }
 
@@ -405,19 +396,19 @@ export class LassoHandler extends EventEmitter implements ILassoHandler {
       // 비추가 모드: 기존 선택 모두 해제
       this.selectionHandler.clearSelection();
     }
-    
+
     // 가상 선택된 블록들을 실제로 선택
     for (const blockId of this.virtualSelectedBlocks) {
       if (!this.selectionHandler.isSelected(blockId)) {
         this.selectionHandler.toggleSelection(blockId);
       }
     }
-    
+
     const selectedIds = Array.from(this.virtualSelectedBlocks);
-    (this as any).emit('selection:finalized', { 
+    (this as any).emit('selection:finalized', {
       selectedIds,
       isAdditive: context.isAdditive,
-      bounds: context.bounds
+      bounds: context.bounds,
     });
   }
 
@@ -476,21 +467,21 @@ export class LassoHandler extends EventEmitter implements ILassoHandler {
   } {
     return {
       spatialIndex: {
-        optimization: "SpatialIndex + 그리드 좌표 기반",
-        complexity: "O(1) - DOM 호출 완전 제거"
+        optimization: 'SpatialIndex + 그리드 좌표 기반',
+        complexity: 'O(1) - DOM 호출 완전 제거',
       },
       uiRendering: {
-        optimization: "RequestAnimationFrame + 중복 방지",
-        duplicateSkipped: this.lastRenderedSelection !== ''
+        optimization: 'RequestAnimationFrame + 중복 방지',
+        duplicateSkipped: this.lastRenderedSelection !== '',
       },
       virtualSelection: {
         virtualSelectedCount: this.virtualSelectedBlocks.size,
-        isActive: this.isActive
+        isActive: this.isActive,
       },
       throttling: {
         updateThrottleMs: this.UPDATE_THROTTLE,
-        lastUpdateTime: this.lastUpdateTime
-      }
+        lastUpdateTime: this.lastUpdateTime,
+      },
     };
   }
 

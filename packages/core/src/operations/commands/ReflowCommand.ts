@@ -14,7 +14,7 @@ export class ReflowCommand implements ICommand {
   constructor(
     private anchorBlockId: string,
     private newPosition: GridPosition,
-    private strategy: DragReflowStrategy = 'axis-shift'
+    private strategy: DragReflowStrategy = 'push-away'
   ) {
     this.id = generateId();
     this.description = `Reflow blocks after moving ${anchorBlockId} using ${strategy} strategy`;

@@ -48,7 +48,7 @@ export class ConfigManager extends EventEmitter {
         },
       },
       behavior: {
-        dragReflow: initialConfig?.dragReflow || 'none',
+        dragReflow: initialConfig?.dragReflow || 'push-away',
         autoArrange: initialConfig?.autoArrange || false,
         autoArrangeStrategy: initialConfig?.autoArrangeStrategy || 'top-left',
       },

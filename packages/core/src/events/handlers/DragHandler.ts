@@ -16,15 +16,22 @@ export interface DragHandlerConfig {
     allowOverlap: boolean;
     dragReflow: boolean;
   };
-  reflowCallback?: (
-    anchorBlockId: string,
-    newPosition: any,
-    strategy?: any,
-  ) => Promise<boolean>;
+  reflowCallback?: (anchorBlockId: string, newPosition: any, strategy?: any) => Promise<boolean>;
   moveBlockCallback?: (blockId: string, from: any, to: any) => Promise<void>;
   rollbackCallback?: (blockId: string, originalPosition: any) => Promise<void>;
-  rollbackGroupCallback?: (rollbackData: Array<{ blockId: string; originalPosition: any }>) => Promise<void>;
+  rollbackGroupCallback?: (
+    rollbackData: Array<{ blockId: string; originalPosition: any }>,
+  ) => Promise<void>;
   moveGroupCallback?: (moveData: Array<{ blockId: string; from: any; to: any }>) => Promise<void>;
+  // 새로운 리플로우 시스템 콜백들
+  reflowPreviewCallback?: (blockId: string, from: any, to: any, strategy: string) => void;
+  reflowPreviewEndCallback?: () => void;
+  moveWithReflowCallback?: (
+    blockId: string,
+    from: any,
+    to: any,
+    strategy: string,
+  ) => Promise<boolean>;
 }
 
 /**
@@ -41,10 +48,10 @@ export class DragHandler extends EventEmitter implements IDragHandler {
   private blockManager: BlockManager;
   private selectionHandler: SelectionHandler;
   private grid: Grid;
-  
+
   // 🚀 성능 최적화: Throttling 적용
   private lastUpdateTime = 0;
-  private readonly UPDATE_THROTTLE = 16; // 60fps (16ms) - 부드러운 드래그 경험
+  private readonly UPDATE_THROTTLE = 8; // 60fps (16ms) - 부드러운 드래그 경험
   private getConfiguration: () => {
     allowOverlap: boolean;
     dragReflow: boolean;
@@ -56,8 +63,21 @@ export class DragHandler extends EventEmitter implements IDragHandler {
   ) => Promise<boolean>;
   private moveBlockCallback?: (blockId: string, from: any, to: any) => Promise<void>;
   private rollbackCallback?: (blockId: string, originalPosition: any) => Promise<void>;
-  private rollbackGroupCallback?: (rollbackData: Array<{ blockId: string; originalPosition: any }>) => Promise<void>;
-  private moveGroupCallback?: (moveData: Array<{ blockId: string; from: any; to: any }>) => Promise<void>;
+  private rollbackGroupCallback?: (
+    rollbackData: Array<{ blockId: string; originalPosition: any }>,
+  ) => Promise<void>;
+  private moveGroupCallback?: (
+    moveData: Array<{ blockId: string; from: any; to: any }>,
+  ) => Promise<void>;
+  // 새로운 리플로우 시스템 콜백들
+  private reflowPreviewCallback?: (blockId: string, from: any, to: any, strategy: string) => void;
+  private reflowPreviewEndCallback?: () => void;
+  private moveWithReflowCallback?: (
+    blockId: string,
+    from: any,
+    to: any,
+    strategy: string,
+  ) => Promise<boolean>;
 
   constructor(config: DragHandlerConfig) {
     super();
@@ -71,6 +91,9 @@ export class DragHandler extends EventEmitter implements IDragHandler {
     this.rollbackCallback = config.rollbackCallback;
     this.rollbackGroupCallback = config.rollbackGroupCallback;
     this.moveGroupCallback = config.moveGroupCallback;
+    this.reflowPreviewCallback = config.reflowPreviewCallback;
+    this.reflowPreviewEndCallback = config.reflowPreviewEndCallback;
+    this.moveWithReflowCallback = config.moveWithReflowCallback;
   }
 
   onPointerDown(event: PointerEvent, context: InteractionContext): boolean {
@@ -149,6 +172,11 @@ export class DragHandler extends EventEmitter implements IDragHandler {
 
   endDrag(event: PointerEvent, context: DragContext): void {
     if (!this.isActive) return;
+
+    // 🚀 리플로우 프리뷰 종료
+    if (this.reflowPreviewEndCallback) {
+      this.reflowPreviewEndCallback();
+    }
 
     // 최종 위치/크기 확정
     const hasTransition = this.finalizeDrag(context);
@@ -255,7 +283,7 @@ export class DragHandler extends EventEmitter implements IDragHandler {
       const hasCollision = spatialIndex.hasCollisionFast(
         newGridPosition,
         blockData.size,
-        context.blockId
+        context.blockId,
       );
 
       if (hasCollision) {
@@ -277,6 +305,19 @@ export class DragHandler extends EventEmitter implements IDragHandler {
         isGroupDrag: false,
         selectedIds: [context.blockId],
       });
+    }
+
+    // 🚀 새로운 리플로우 프리뷰 시스템
+    const reflowConfig = this.getConfiguration();
+    if (reflowConfig.dragReflow && this.reflowPreviewCallback && !context.isGroupDrag) {
+      // 단일 블록 드래그에만 적용 (그룹 드래그는 복잡도 때문에 일단 제외)
+      const reflowStrategy = (reflowConfig as any).dragReflowStrategy || 'push-away';
+      this.reflowPreviewCallback(
+        context.blockId,
+        context.startGridPosition,
+        newGridPosition,
+        reflowStrategy,
+      );
     }
   }
 
@@ -319,7 +360,7 @@ export class DragHandler extends EventEmitter implements IDragHandler {
 
     // 새 위치와 크기로 유효성 재검사
     let isValid = this.grid.isValidGridPosition(finalResult.position, finalResult.size);
-    
+
     // 🚀 성능 최적화: SpatialIndex 기반 O(1) 충돌 검사
     if (isValid) {
       const config = this.getConfiguration();
@@ -328,7 +369,7 @@ export class DragHandler extends EventEmitter implements IDragHandler {
         const hasCollision = spatialIndex.hasCollisionFast(
           finalResult.position,
           finalResult.size,
-          context.blockId
+          context.blockId,
         );
         if (hasCollision) {
           isValid = false;
@@ -378,30 +419,38 @@ export class DragHandler extends EventEmitter implements IDragHandler {
 
           // 그리드 델타 계산
           const gridDelta = this.pixelsToGridDelta(deltaX, deltaY);
-          
+
           // 원하는 위치 (clamp 전)
           const intendedPosition = {
             x: context.startGridPosition.x + gridDelta.x,
             y: context.startGridPosition.y + gridDelta.y,
             zIndex: (context.startGridPosition as any).zIndex || 1,
           };
-          
+
           // 실제 적용될 위치 (clamp 후)
           const finalPosition = this.clampPositionToGrid(intendedPosition, block.getData().size);
 
           // 제약 검사: clamp가 발생했거나 위치가 유효하지 않으면 invalid
-          const clampOccurred = 
+          const clampOccurred =
             intendedPosition.x !== finalPosition.x || intendedPosition.y !== finalPosition.y;
           const positionValid = this.grid.isValidGridPosition(finalPosition, block.getData().size);
           let isValid = !clampOccurred && positionValid;
-          
+
           if (!isValid) {
-            console.log('DragHandler: Primary block constraint violation detected for block', context.blockId);
+            console.log(
+              'DragHandler: Primary block constraint violation detected for block',
+              context.blockId,
+            );
             console.log('DragHandler: Intended position:', intendedPosition);
             console.log('DragHandler: Clamped position:', finalPosition);
-            console.log('DragHandler: Clamp occurred:', clampOccurred, 'Position valid:', positionValid);
+            console.log(
+              'DragHandler: Clamp occurred:',
+              clampOccurred,
+              'Position valid:',
+              positionValid,
+            );
           }
-          
+
           // 🚀 성능 최적화: SpatialIndex 기반 O(1) 주 블록 충돌 검사
           const config = this.getConfiguration();
           if (isValid && !config.allowOverlap) {
@@ -409,13 +458,15 @@ export class DragHandler extends EventEmitter implements IDragHandler {
             const hasCollision = spatialIndex.hasCollisionFast(
               finalPosition,
               block.getData().size,
-              context.blockId
+              context.blockId,
             );
-            if (hasCollision) {
+            if (hasCollision && !config.dragReflow) {
+              // reflow가 비활성화되어 있으면 충돌시 드래그 무효화
               isValid = false;
             }
+            // reflow가 활성화되어 있으면 충돌을 허용 (드래그 완료시 reflow가 처리)
           }
-          
+
           // 그룹 드래그인 경우 모든 블록의 유효성도 검사
           if (isValid && context.isGroupDrag && context.startGroupPositions) {
             for (const blockId of context.selectedIds) {
@@ -424,73 +475,104 @@ export class DragHandler extends EventEmitter implements IDragHandler {
               const selectedStartPos = context.startGroupPositions.get(blockId);
               if (selectedBlock && selectedStartPos) {
                 const selectedData = selectedBlock.getData();
-                
+
                 // 원하는 위치 (clamp 전)
                 const selectedIntendedPosition = {
                   x: selectedStartPos.x + gridDelta.x,
                   y: selectedStartPos.y + gridDelta.y,
                   zIndex: selectedStartPos.zIndex || 1,
                 };
-                
+
                 // 실제 적용될 위치 (clamp 후)
                 const selectedFinalPosition = this.clampPositionToGrid(
                   selectedIntendedPosition,
                   selectedData.size,
                 );
-                
+
                 // 제약 검사: clamp가 발생했거나 위치가 유효하지 않으면 invalid
-                const clampOccurred = 
-                  selectedIntendedPosition.x !== selectedFinalPosition.x || 
+                const clampOccurred =
+                  selectedIntendedPosition.x !== selectedFinalPosition.x ||
                   selectedIntendedPosition.y !== selectedFinalPosition.y;
-                const positionValid = this.grid.isValidGridPosition(selectedFinalPosition, selectedData.size);
+                const positionValid = this.grid.isValidGridPosition(
+                  selectedFinalPosition,
+                  selectedData.size,
+                );
                 const selectedValid = !clampOccurred && positionValid;
-                  
+
                 if (!selectedValid) {
-                  console.log('DragHandler: Group constraint violation detected for block', blockId);
+                  console.log(
+                    'DragHandler: Group constraint violation detected for block',
+                    blockId,
+                  );
                   console.log('DragHandler: Intended position:', selectedIntendedPosition);
                   console.log('DragHandler: Clamped position:', selectedFinalPosition);
-                  console.log('DragHandler: Clamp occurred:', clampOccurred, 'Position valid:', positionValid);
+                  console.log(
+                    'DragHandler: Clamp occurred:',
+                    clampOccurred,
+                    'Position valid:',
+                    positionValid,
+                  );
                   isValid = false;
                   break;
                 }
-                
+
                 // 🚀 성능 최적화: SpatialIndex 기반 O(1) 그룹 블록 충돌 검사
                 if (!config.allowOverlap) {
                   const spatialIndex = this.blockManager.getSpatialIndex();
                   const hasCollision = spatialIndex.hasCollisionFast(
                     selectedFinalPosition,
                     selectedData.size,
-                    blockId
+                    blockId,
                   );
-                  if (hasCollision) {
+                  if (hasCollision && !config.dragReflow) {
+                    // reflow가 비활성화되어 있으면 충돌시 드래그 무효화
                     console.log('DragHandler: Group collision detected for block', blockId);
                     isValid = false;
                     break;
                   }
+                  // reflow가 활성화되어 있으면 충돌을 허용 (드래그 완료시 reflow가 처리)
                 }
               }
             }
           }
 
           if (isValid) {
+            // Transform 즉시 제거 (실제 이동 전에 시각적 transform 제거)
+            const element = block.getElement();
+            element.style.transform = '';
+            element.style.zIndex = '';
+
+            // 그룹 드래그인 경우 모든 블록의 transform 제거
+            if (context.isGroupDrag) {
+              for (const blockId of context.selectedIds) {
+                if (blockId === context.blockId) continue;
+                const selectedBlock = this.blockManager.getBlockInstance(blockId);
+                if (selectedBlock) {
+                  const selectedElement = selectedBlock.getElement();
+                  selectedElement.style.transform = '';
+                  selectedElement.style.zIndex = '';
+                }
+              }
+            }
+
             // 그룹 드래그인 경우와 단일 드래그를 구분해서 처리
             const useTransition = !!this.moveBlockCallback || !!this.moveGroupCallback;
 
             // 그룹 드래그인 경우 모든 선택된 블록을 동시에 이동
             if (context.isGroupDrag && context.startGroupPositions) {
               console.log('DragHandler: Group move with', context.selectedIds.length, 'blocks');
-              
+
               // 주 블록과 다른 선택된 블록들을 포함한 모든 이동 데이터 수집
               const moveData: Array<{ blockId: string; from: any; to: any }> = [];
-              
+
               // 주 블록 추가
               const originalPosition = context.startGridPosition;
               moveData.push({
                 blockId: context.blockId,
                 from: originalPosition,
-                to: finalPosition
+                to: finalPosition,
               });
-              
+
               // 다른 선택된 블록들 추가
               for (const blockId of context.selectedIds) {
                 if (blockId === context.blockId) continue;
@@ -506,20 +588,27 @@ export class DragHandler extends EventEmitter implements IDragHandler {
                     },
                     selectedData.size,
                   );
-                  
+
                   moveData.push({
                     blockId,
                     from: selectedStartPos,
-                    to: selectedFinalPosition
+                    to: selectedFinalPosition,
                   });
                 }
               }
-              
+
               // 그룹 이동 콜백 사용 (모든 블록을 동시에 애니메이션)
               if (this.moveGroupCallback && moveData.length > 1) {
-                console.log('DragHandler: Using group move callback for', moveData.length, 'blocks');
-                this.moveGroupCallback(moveData).catch(error => {
-                  console.warn('Group move with transition failed, falling back to individual move:', error);
+                console.log(
+                  'DragHandler: Using group move callback for',
+                  moveData.length,
+                  'blocks',
+                );
+                this.moveGroupCallback(moveData).catch((error) => {
+                  console.warn(
+                    'Group move with transition failed, falling back to individual move:',
+                    error,
+                  );
                   // 실패 시 개별 이동
                   for (const { blockId, to } of moveData) {
                     this.blockManager.moveBlock(blockId, to);
@@ -529,14 +618,16 @@ export class DragHandler extends EventEmitter implements IDragHandler {
                 // 그룹 콜백이 없으면 개별 이동 (순차적 애니메이션)
                 // 주 블록 먼저 이동
                 if (this.moveBlockCallback) {
-                  this.moveBlockCallback(context.blockId, originalPosition, finalPosition).catch(error => {
-                    console.warn('Main block move failed:', error);
-                    this.blockManager.moveBlock(context.blockId, finalPosition);
-                  });
+                  this.moveBlockCallback(context.blockId, originalPosition, finalPosition).catch(
+                    (error) => {
+                      console.warn('Main block move failed:', error);
+                      this.blockManager.moveBlock(context.blockId, finalPosition);
+                    },
+                  );
                 } else {
                   this.blockManager.moveBlock(context.blockId, finalPosition);
                 }
-                
+
                 // 다른 블록들 개별 이동
                 for (const blockId of context.selectedIds) {
                   if (blockId === context.blockId) continue;
@@ -552,9 +643,13 @@ export class DragHandler extends EventEmitter implements IDragHandler {
                       },
                       selectedData.size,
                     );
-                    
+
                     if (this.moveBlockCallback) {
-                      this.moveBlockCallback(blockId, selectedStartPos, selectedFinalPosition).catch(error => {
+                      this.moveBlockCallback(
+                        blockId,
+                        selectedStartPos,
+                        selectedFinalPosition,
+                      ).catch((error) => {
                         console.warn('Individual move with transition failed:', error);
                         this.blockManager.moveBlock(blockId, selectedFinalPosition);
                       });
@@ -567,23 +662,44 @@ export class DragHandler extends EventEmitter implements IDragHandler {
             } else {
               // 단일 블록 이동
               const originalPosition = context.startGridPosition;
-              if (this.moveBlockCallback) {
-                console.log('DragHandler: Using FLIP move animation for single block', context.blockId);
-                this.moveBlockCallback(context.blockId, originalPosition, finalPosition).catch(error => {
-                  console.warn('Move with transition failed, falling back to direct move:', error);
-                  this.blockManager.moveBlock(context.blockId, finalPosition);
-                });
+              const config = this.getConfiguration();
+
+              // 🚀 새로운 리플로우 시스템 사용
+              if (config.dragReflow && this.moveWithReflowCallback) {
+                const reflowStrategy = (config as any).dragReflowStrategy || 'push-away';
+                this.moveWithReflowCallback(
+                  context.blockId,
+                  originalPosition,
+                  finalPosition,
+                  reflowStrategy,
+                )
+                  .then((success) => {
+                    if (!success) {
+                      console.warn('Move with reflow failed, keeping original position');
+                      // 실패시 원래 위치 유지 (롤백은 MoveWithReflowOperation에서 처리)
+                    }
+                  })
+                  .catch((error) => {
+                    console.error('Move with reflow error:', error);
+                    // 에러시 원래 위치 유지
+                  });
+              } else if (this.moveBlockCallback) {
+                console.log(
+                  'DragHandler: Using FLIP move animation for single block',
+                  context.blockId,
+                );
+                this.moveBlockCallback(context.blockId, originalPosition, finalPosition).catch(
+                  (error) => {
+                    console.warn(
+                      'Move with transition failed, falling back to direct move:',
+                      error,
+                    );
+                    this.blockManager.moveBlock(context.blockId, finalPosition);
+                  },
+                );
               } else {
                 this.blockManager.moveBlock(context.blockId, finalPosition);
               }
-            }
-
-            // 리플로우 실행 (드래그 완료 후)
-            const config = this.getConfiguration();
-            if (config.dragReflow && this.reflowCallback) {
-              this.reflowCallback(context.blockId, finalPosition).catch((error) => {
-                console.warn('Reflow failed:', error);
-              });
             }
 
             return useTransition;
@@ -592,23 +708,45 @@ export class DragHandler extends EventEmitter implements IDragHandler {
             console.log('DragHandler: Invalid position detected, rolling back');
             console.log('DragHandler: Group drag:', context.isGroupDrag);
             console.log('DragHandler: Selected IDs:', context.selectedIds);
-            
+
+            // Transform 즉시 제거 (롤백 전에 시각적 transform 제거)
+            const element = block.getElement();
+            element.style.transform = '';
+            element.style.zIndex = '';
+
+            // 그룹 드래그인 경우 모든 블록의 transform 제거
+            if (context.isGroupDrag) {
+              for (const blockId of context.selectedIds) {
+                if (blockId === context.blockId) continue;
+                const selectedBlock = this.blockManager.getBlockInstance(blockId);
+                if (selectedBlock) {
+                  const selectedElement = selectedBlock.getElement();
+                  selectedElement.style.transform = '';
+                  selectedElement.style.zIndex = '';
+                }
+              }
+            }
+
             // 그룹 드래그인 경우와 단일 드래그를 구분해서 처리
             const useTransition = !!this.rollbackCallback || !!this.rollbackGroupCallback;
 
             // 그룹 드래그인 경우 모든 선택된 블록도 FLIP 애니메이션으로 복원
             if (context.isGroupDrag && context.startGroupPositions) {
-              console.log('DragHandler: Rolling back group drag with', context.selectedIds.length, 'blocks');
-              
+              console.log(
+                'DragHandler: Rolling back group drag with',
+                context.selectedIds.length,
+                'blocks',
+              );
+
               // 주 블록과 다른 선택된 블록들을 포함한 모든 롤백 데이터 수집
               const rollbackData: Array<{ blockId: string; originalPosition: any }> = [];
-              
+
               // 주 블록 추가
               rollbackData.push({
                 blockId: context.blockId,
-                originalPosition: context.startGridPosition
+                originalPosition: context.startGridPosition,
               });
-              
+
               // 다른 선택된 블록들 추가
               for (const blockId of context.selectedIds) {
                 if (blockId === context.blockId) continue;
@@ -616,25 +754,26 @@ export class DragHandler extends EventEmitter implements IDragHandler {
                 if (originalPosition) {
                   rollbackData.push({
                     blockId,
-                    originalPosition
+                    originalPosition,
                   });
                 }
               }
-              
+
               // 그룹 롤백 콜백 사용 (모든 블록을 동시에 애니메이션)
               if (this.rollbackGroupCallback && rollbackData.length > 1) {
-                console.log('DragHandler: Using group rollback callback for', rollbackData.length, 'blocks');
-                this.rollbackGroupCallback(rollbackData).catch(error => {
-                  console.warn('Group rollback with transition failed, falling back to individual restore:', error);
+                console.log(
+                  'DragHandler: Using group rollback callback for',
+                  rollbackData.length,
+                  'blocks',
+                );
+                this.rollbackGroupCallback(rollbackData).catch((error) => {
+                  console.warn(
+                    'Group rollback with transition failed, falling back to individual restore:',
+                    error,
+                  );
                   // 실패 시 개별 복원
                   for (const { blockId, originalPosition } of rollbackData) {
-                    const block = this.blockManager.getBlockInstance(blockId);
-                    if (block) {
-                      const element = block.getElement();
-                      element.style.transform = '';
-                      element.style.zIndex = '';
-                      this.updateBlockPosition(blockId, originalPosition, false);
-                    }
+                    this.updateBlockPosition(blockId, originalPosition, false);
                   }
                 });
               } else {
@@ -644,18 +783,12 @@ export class DragHandler extends EventEmitter implements IDragHandler {
                   if (block) {
                     if (this.rollbackCallback && blockId !== context.blockId) {
                       // 개별 콜백 사용 (이미 주 블록은 위에서 처리됨)
-                      this.rollbackCallback(blockId, originalPosition).catch(error => {
+                      this.rollbackCallback(blockId, originalPosition).catch((error) => {
                         console.warn('Individual rollback with transition failed:', error);
-                        const element = block.getElement();
-                        element.style.transform = '';
-                        element.style.zIndex = '';
                         this.updateBlockPosition(blockId, originalPosition, false);
                       });
                     } else if (blockId !== context.blockId) {
                       // 콜백이 없으면 즉시 복원
-                      const element = block.getElement();
-                      element.style.transform = '';
-                      element.style.zIndex = '';
                       this.updateBlockPosition(blockId, originalPosition, false);
                     }
                   }
@@ -664,22 +797,23 @@ export class DragHandler extends EventEmitter implements IDragHandler {
             } else {
               // 단일 블록 롤백
               if (this.rollbackCallback) {
-                console.log('DragHandler: Using rollback-specific FLIP animation to:', context.startGridPosition);
+                console.log(
+                  'DragHandler: Using rollback-specific FLIP animation to:',
+                  context.startGridPosition,
+                );
                 console.log('DragHandler: Element current transform:', element.style.transform);
-                
+
                 // 🔧 rollback 전용 콜백 사용 - TransitionManager의 rollback 메서드 활용
-                this.rollbackCallback(context.blockId, context.startGridPosition).catch(error => {
-                  console.warn('Rollback with transition failed, falling back to direct restore:', error);
+                this.rollbackCallback(context.blockId, context.startGridPosition).catch((error) => {
+                  console.warn(
+                    'Rollback with transition failed, falling back to direct restore:',
+                    error,
+                  );
                   // 실패 시 즉시 복원
-                  element.style.transform = '';
-                  element.style.zIndex = '';
                   this.updateBlockPosition(context.blockId, context.startGridPosition, false);
                 });
               } else {
                 // 콜백이 없으면 즉시 복원
-                const element = block.getElement();
-                element.style.transform = '';
-                element.style.zIndex = '';
                 this.updateBlockPosition(context.blockId, context.startGridPosition, false);
               }
             }
@@ -694,11 +828,11 @@ export class DragHandler extends EventEmitter implements IDragHandler {
       // 리사이즈의 경우 context에 저장된 최종 위치와 크기를 적용
       if (context.finalPosition && context.finalSize) {
         // 유효한 리사이즈 - 적용
-        console.log('DragHandler: Applying valid resize', { 
-          finalPosition: context.finalPosition, 
-          finalSize: context.finalSize 
+        console.log('DragHandler: Applying valid resize', {
+          finalPosition: context.finalPosition,
+          finalSize: context.finalSize,
         });
-        
+
         // 위치가 변경된 리사이즈 방향인 경우 위치도 업데이트
         const directionsWithPositionChange = ['nw', 'ne', 'sw', 'n', 'w'];
         if (directionsWithPositionChange.includes(context.resizeDirection)) {
@@ -710,7 +844,7 @@ export class DragHandler extends EventEmitter implements IDragHandler {
       } else {
         // 유효하지 않은 리사이즈 - 원래 크기/위치로 rollback
         console.log('DragHandler: Invalid resize, rolling back to original size/position');
-        
+
         // 원래 위치와 크기로 복원
         this.blockManager.moveBlock(context.blockId, context.startGridPosition);
         this.blockManager.resizeBlock(context.blockId, context.startGridSize);
@@ -864,7 +998,10 @@ export class DragHandler extends EventEmitter implements IDragHandler {
 
     const config = this.getConfiguration();
     let groupValid = true;
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    let minX = Infinity,
+      minY = Infinity,
+      maxX = -Infinity,
+      maxY = -Infinity;
     const blockPreviews: Array<{
       blockId: string;
       position: { x: number; y: number; zIndex: number };
@@ -879,31 +1016,27 @@ export class DragHandler extends EventEmitter implements IDragHandler {
       if (!block || !startPos) continue;
 
       const blockData = block.getData();
-      
+
       // 원하는 위치 (clamp 전)
       const intendedPosition = {
         x: startPos.x + gridDelta.x,
         y: startPos.y + gridDelta.y,
         zIndex: startPos.zIndex || 1,
       };
-      
+
       // 실제 적용될 위치 (clamp 후)
       const finalPosition = this.clampPositionToGrid(intendedPosition, blockData.size);
-      
+
       // 제약 검사
-      const clampOccurred = 
+      const clampOccurred =
         intendedPosition.x !== finalPosition.x || intendedPosition.y !== finalPosition.y;
       const positionValid = this.grid.isValidGridPosition(finalPosition, blockData.size);
       let blockValid = !clampOccurred && positionValid;
-      
+
       // 🚀 성능 최적화: SpatialIndex 기반 O(1) 프리뷰 충돌 검사
       if (blockValid && !config.allowOverlap) {
         const spatialIndex = this.blockManager.getSpatialIndex();
-        const hasCollision = spatialIndex.hasCollisionFast(
-          finalPosition,
-          blockData.size,
-          blockId
-        );
+        const hasCollision = spatialIndex.hasCollisionFast(finalPosition, blockData.size, blockId);
         if (hasCollision) {
           blockValid = false;
         }

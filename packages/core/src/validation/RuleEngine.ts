@@ -1,13 +1,13 @@
 import { EventEmitter } from '../EventEmitter';
-import type { 
-  IRuleEngine, 
-  IValidationRule, 
-  IRuleGroup, 
-  ValidationContext, 
+import type {
+  IRuleEngine,
+  IValidationRule,
+  IRuleGroup,
+  ValidationContext,
   ValidationResult,
   ValidationError,
   ValidationWarning,
-  ValidationSuggestion
+  ValidationSuggestion,
 } from './types';
 
 /**
@@ -17,10 +17,6 @@ export class RuleEngine extends EventEmitter implements IRuleEngine {
   private rules = new Map<string, IValidationRule>();
   private ruleGroups = new Map<string, IRuleGroup>();
   private rulesByGroup = new Map<string, Set<string>>();
-
-  constructor() {
-    super();
-  }
 
   registerRule(rule: IValidationRule): void {
     if (this.rules.has(rule.id)) {
@@ -81,7 +77,7 @@ export class RuleEngine extends EventEmitter implements IRuleEngine {
     }
 
     return Array.from(ruleIds)
-      .map(id => this.rules.get(id))
+      .map((id) => this.rules.get(id))
       .filter((rule): rule is IValidationRule => rule != null);
   }
 
@@ -126,7 +122,7 @@ export class RuleEngine extends EventEmitter implements IRuleEngine {
 
   validateWithRules(context: ValidationContext, ruleIds: string[]): ValidationResult {
     const rules = ruleIds
-      .map(id => this.rules.get(id))
+      .map((id) => this.rules.get(id))
       .filter((rule): rule is IValidationRule => rule != null && rule.enabled);
 
     return this.executeRules(rules, context);
@@ -139,7 +135,7 @@ export class RuleEngine extends EventEmitter implements IRuleEngine {
    */
   getApplicableRules(context: ValidationContext): IValidationRule[] {
     return this.getRules()
-      .filter(rule => rule.enabled && rule.appliesTo(context))
+      .filter((rule) => rule.enabled && rule.appliesTo(context))
       .sort((a, b) => b.priority - a.priority); // Higher priority first
   }
 
@@ -162,7 +158,7 @@ export class RuleEngine extends EventEmitter implements IRuleEngine {
 
     return {
       totalRules: rules.length,
-      enabledRules: rules.filter(r => r.enabled).length,
+      enabledRules: rules.filter((r) => r.enabled).length,
       ruleGroups: this.ruleGroups.size,
       rulesByType,
     };
@@ -181,7 +177,7 @@ export class RuleEngine extends EventEmitter implements IRuleEngine {
     for (const rule of rules) {
       try {
         (this as any).emit('rule:executing', { rule, context });
-        
+
         const result = rule.validate(context);
         ruleResults[rule.id] = result;
 
@@ -204,7 +200,7 @@ export class RuleEngine extends EventEmitter implements IRuleEngine {
         const ruleError: ValidationError = {
           code: 'RULE_EXECUTION_ERROR',
           message: `Rule '${rule.name}' failed to execute: ${errorMessage}`,
-          context: { ruleId: rule.id, ruleName: rule.name }
+          context: { ruleId: rule.id, ruleName: rule.name },
         };
 
         allErrors.push(ruleError);
@@ -223,7 +219,7 @@ export class RuleEngine extends EventEmitter implements IRuleEngine {
         rulesExecuted: rules.length,
         ruleResults,
         executionTimestamp: Date.now(),
-      }
+      },
     };
 
     (this as any).emit('validation:completed', { context, result: finalResult });
@@ -252,11 +248,11 @@ export class RuleEngine extends EventEmitter implements IRuleEngine {
     groups: Array<{ id: string; enabled: boolean }>;
   } {
     return {
-      rules: this.getRules().map(rule => ({
+      rules: this.getRules().map((rule) => ({
         id: rule.id,
         enabled: rule.enabled,
       })),
-      groups: Array.from(this.ruleGroups.values()).map(group => ({
+      groups: Array.from(this.ruleGroups.values()).map((group) => ({
         id: group.id,
         enabled: group.enabled,
       })),
