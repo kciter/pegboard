@@ -96,7 +96,7 @@ export class FLIPTransitioner implements ITransitioner {
 
   constructor(private config: FLIPConfig = {
     duration: 220,
-    easing: 'transform 160ms ease',
+    easing: 'transform 220ms ease', // 🔧 duration과 일치하도록 수정
     useTransform: true,
   }) {}
 
@@ -220,31 +220,28 @@ export class FLIPTransitioner implements ITransitioner {
   private async applySimpleFLIP(moves: BlockMove[], container: HTMLElement): Promise<void> {
     if (moves.length === 0) return;
 
-    // 1. First - 현재 드래그된 위치 기록 (transform 적용된 상태)
+    // 1. First - 현재 위치 기록
     const firstRects = new Map<string, DOMRect>();
     for (const move of moves) {
       const el = move.block.getElement();
-      // 드래그 상태 정리하지 않고 현재 위치 기록 (transform이 적용된 실제 위치)
       firstRects.set(move.block.getData().id, el.getBoundingClientRect());
       this.currentAnimations.add(move.block.getData().id);
     }
 
-    // 2. 실제 변경 적용 및 드래그 상태 정리
+    // 2. Last - 실제 위치 변경
     for (const move of moves) {
       const el = move.block.getElement();
-      // 드래그 상태 정리
       el.classList.remove('pegboard-block-dragging');
+      el.style.transition = 'none';
       el.style.transform = '';
       el.style.zIndex = '';
-      // 최종 위치로 이동
       move.block.setPosition(move.to);
     }
 
-    // 3. Last - 변경 후 위치 기록
+    // 3. Last 위치 기록
     const lastRects = new Map<string, DOMRect>();
     for (const move of moves) {
       const el = move.block.getElement();
-      el.style.transition = 'none';
       lastRects.set(move.block.getData().id, el.getBoundingClientRect());
     }
 
@@ -258,7 +255,10 @@ export class FLIPTransitioner implements ITransitioner {
       if (first && last) {
         const dx = first.left - last.left;
         const dy = first.top - last.top;
-        el.style.transform = `translate(${dx}px, ${dy}px)`;
+        
+        if (Math.abs(dx) > 1 || Math.abs(dy) > 1) {
+          el.style.transform = `translate(${dx}px, ${dy}px)`;
+        }
       }
     }
 
@@ -296,31 +296,33 @@ export class FLIPTransitioner implements ITransitioner {
     const items = Array.from(changeMap.values());
     if (items.length === 0) return;
 
-    // 1. First - 변경 전 상태 기록
+    // 1. First - 현재 상태 기록
     const firstRects = new Map<string, DOMRect>();
     for (const item of items) {
       const el = item.block.getElement();
-      el.classList.remove('pegboard-block-dragging');
       firstRects.set(item.block.getData().id, el.getBoundingClientRect());
       this.currentAnimations.add(item.block.getData().id);
     }
 
-    // 2. 실제 변경 적용
+    // 2. Last - 실제 변경 적용
     for (const item of items) {
+      const el = item.block.getElement();
+      el.classList.remove('pegboard-block-dragging');
+      el.style.transition = 'none';
+      el.style.transform = '';
+      el.style.zIndex = '';
       if (item.toPos) item.block.setPosition(item.toPos);
       if (item.toSize) item.block.setSize(item.toSize);
     }
 
-    // 3. Last - 변경 후 상태 기록
+    // 3. Last 위치 기록
     const lastRects = new Map<string, DOMRect>();
     for (const item of items) {
       const el = item.block.getElement();
-      el.style.transition = 'none';
-      el.style.transform = '';
       lastRects.set(item.block.getData().id, el.getBoundingClientRect());
     }
 
-    // 4. Invert - 역변환 적용 (translate + scale)
+    // 4. Invert - 역변환 적용
     for (const item of items) {
       const id = item.block.getData().id;
       const el = item.block.getElement();
@@ -333,8 +335,10 @@ export class FLIPTransitioner implements ITransitioner {
         const sx = last.width !== 0 ? first.width / last.width : 1;
         const sy = last.height !== 0 ? first.height / last.height : 1;
         
-        el.style.transformOrigin = 'top left';
-        el.style.transform = `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`;
+        if (Math.abs(dx) > 1 || Math.abs(dy) > 1 || Math.abs(sx - 1) > 0.01 || Math.abs(sy - 1) > 0.01) {
+          el.style.transformOrigin = 'top left';
+          el.style.transform = `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`;
+        }
       }
     }
 
@@ -357,35 +361,32 @@ export class FLIPTransitioner implements ITransitioner {
   }
 
   private async playAnimation(elements: HTMLElement[], container: HTMLElement): Promise<void> {
-    return new Promise((resolve, reject) => {
-      if (this.abortController?.signal.aborted) {
-        reject(new Error('Animation was cancelled'));
-        return;
-      }
-
+    return new Promise((resolve) => {
       // Force reflow
-      container.offsetHeight;
+      void container.offsetHeight;
       
       requestAnimationFrame(() => {
-        if (this.abortController?.signal.aborted) {
-          reject(new Error('Animation was cancelled'));
-          return;
-        }
-
+        // transition 설정
         for (const el of elements) {
-          el.style.transition = this.config.easing;
-          el.style.transform = '';
+          if (el.style.transform) {
+            el.style.transition = this.config.easing;
+          }
         }
-
-        // 애니메이션 완료 대기
-        setTimeout(() => {
+        
+        // 다음 프레임에서 transform 제거
+        requestAnimationFrame(() => {
           for (const el of elements) {
-            if (!el.classList.contains('pegboard-block-dragging')) {
+            el.style.transform = '';
+          }
+          
+          // 애니메이션 완료 대기
+          setTimeout(() => {
+            for (const el of elements) {
               el.style.transition = '';
             }
-          }
-          resolve();
-        }, this.config.duration);
+            resolve();
+          }, this.config.duration);
+        });
       });
     });
   }
@@ -435,14 +436,14 @@ export class FLIPTransitioner implements ITransitioner {
     this.abortController = new AbortController();
 
     try {
-      // 1. First - 현재 위치/크기 기록
+      // 1. First - 현재 위치/크기 기록 (드래그 상태 유지)
       const firstRects = new Map<string, DOMRect>();
       for (let i = 0; i < blocks.length; i++) {
         const block = blocks[i];
         if (!block) continue;
         
         const el = block.getElement();
-        el.classList.remove('pegboard-block-dragging', 'pegboard-block-resizing');
+        // 🔧 드래그 상태를 유지한 채로 현재 위치 기록
         firstRects.set(block.getData().id, el.getBoundingClientRect());
         this.currentAnimations.add(block.getData().id);
       }
@@ -454,17 +455,22 @@ export class FLIPTransitioner implements ITransitioner {
         if (block && originalState) {
           block.setPosition(originalState.position);
           block.setSize(originalState.size);
+          // 복원 후 드래그 상태 정리
+          const el = block.getElement();
+          el.classList.remove('pegboard-block-dragging', 'pegboard-block-resizing');
         }
       }
 
-      // 3. Last - 복원 후 위치/크기 기록
+      // 3. Last - 복원 후 위치/크기 기록 (transform 제거 후)
       const lastRects = new Map<string, DOMRect>();
       for (const block of blocks) {
         if (!block) continue;
         
         const el = block.getElement();
         el.style.transition = 'none';
+        // 🔧 이제 transform과 zIndex를 정리
         el.style.transform = '';
+        el.style.zIndex = '';
         lastRects.set(block.getData().id, el.getBoundingClientRect());
       }
 
@@ -512,37 +518,8 @@ export class FLIPTransitioner implements ITransitioner {
    * 롤백 애니메이션 실행
    */
   private async playRollbackAnimation(elements: HTMLElement[]): Promise<void> {
-    return new Promise((resolve, reject) => {
-      if (this.abortController?.signal.aborted) {
-        reject(new Error('Animation was cancelled'));
-        return;
-      }
-
-      // Force reflow
-      if (elements[0]) {
-        elements[0].offsetHeight;
-      }
-      
-      requestAnimationFrame(() => {
-        if (this.abortController?.signal.aborted) {
-          reject(new Error('Animation was cancelled'));
-          return;
-        }
-
-        for (const el of elements) {
-          el.style.transition = this.config.easing;
-          el.style.transform = '';
-        }
-
-        // 애니메이션 완료 대기
-        setTimeout(() => {
-          for (const el of elements) {
-            el.style.transition = '';
-          }
-          resolve();
-        }, this.config.duration);
-      });
-    });
+    // 동일한 playAnimation 사용
+    return this.playAnimation(elements, this.container);
   }
 }
 
@@ -559,7 +536,7 @@ export class TransitionManager extends EventEmitter {
     super();
     this.transitioner = new FLIPTransitioner({
       duration: 220,
-      easing: 'transform 160ms ease',
+      easing: 'transform 220ms ease', // 🔧 duration과 일치하도록 수정
       useTransform: true,
       ...config
     });

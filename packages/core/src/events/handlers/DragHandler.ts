@@ -185,6 +185,9 @@ export class DragHandler extends EventEmitter implements IDragHandler {
     // FLIP 애니메이션이 있는 경우 TransitionManager에서 애니메이션 완료 후 정리
     if (!hasTransition) {
       this.cleanupVisualFeedback(context);
+    } else {
+      // 🔧 애니메이션이 있어도 container 클래스는 즉시 제거
+      this.container.classList.remove('pegboard-dragging');
     }
 
     this.isActive = false;
@@ -537,26 +540,30 @@ export class DragHandler extends EventEmitter implements IDragHandler {
           }
 
           if (isValid) {
-            // Transform 즉시 제거 (실제 이동 전에 시각적 transform 제거)
-            const element = block.getElement();
-            element.style.transform = '';
-            element.style.zIndex = '';
+            // 그룹 드래그인 경우와 단일 드래그를 구분해서 처리
+            const useTransition = !!this.moveBlockCallback || !!this.moveGroupCallback;
 
-            // 그룹 드래그인 경우 모든 블록의 transform 제거
-            if (context.isGroupDrag) {
-              for (const blockId of context.selectedIds) {
-                if (blockId === context.blockId) continue;
-                const selectedBlock = this.blockManager.getBlockInstance(blockId);
-                if (selectedBlock) {
-                  const selectedElement = selectedBlock.getElement();
-                  selectedElement.style.transform = '';
-                  selectedElement.style.zIndex = '';
+            // 🔧 애니메이션이 없는 경우에는 즉시 transform 제거
+            if (!useTransition) {
+              const element = block.getElement();
+              element.style.transform = '';
+              element.style.zIndex = '';
+
+              // 그룹 드래그인 경우 모든 블록의 transform 제거
+              if (context.isGroupDrag) {
+                for (const blockId of context.selectedIds) {
+                  if (blockId === context.blockId) continue;
+                  const selectedBlock = this.blockManager.getBlockInstance(blockId);
+                  if (selectedBlock) {
+                    const selectedElement = selectedBlock.getElement();
+                    selectedElement.style.transform = '';
+                    selectedElement.style.zIndex = '';
+                  }
                 }
               }
             }
-
-            // 그룹 드래그인 경우와 단일 드래그를 구분해서 처리
-            const useTransition = !!this.moveBlockCallback || !!this.moveGroupCallback;
+            // 🔧 애니메이션이 있는 경우에는 transform 제거를 지연
+            // Transform은 TransitionManager에서 FLIP의 First 단계 후에 제거됨
 
             // 그룹 드래그인 경우 모든 선택된 블록을 동시에 이동
             if (context.isGroupDrag && context.startGroupPositions) {
@@ -709,26 +716,30 @@ export class DragHandler extends EventEmitter implements IDragHandler {
             console.log('DragHandler: Group drag:', context.isGroupDrag);
             console.log('DragHandler: Selected IDs:', context.selectedIds);
 
-            // Transform 즉시 제거 (롤백 전에 시각적 transform 제거)
-            const element = block.getElement();
-            element.style.transform = '';
-            element.style.zIndex = '';
+            // 그룹 드래그인 경우와 단일 드래그를 구분해서 처리
+            const useTransition = !!this.rollbackCallback || !!this.rollbackGroupCallback;
 
-            // 그룹 드래그인 경우 모든 블록의 transform 제거
-            if (context.isGroupDrag) {
-              for (const blockId of context.selectedIds) {
-                if (blockId === context.blockId) continue;
-                const selectedBlock = this.blockManager.getBlockInstance(blockId);
-                if (selectedBlock) {
-                  const selectedElement = selectedBlock.getElement();
-                  selectedElement.style.transform = '';
-                  selectedElement.style.zIndex = '';
+            // 🔧 애니메이션이 없는 경우에는 즉시 transform 제거
+            if (!useTransition) {
+              const element = block.getElement();
+              element.style.transform = '';
+              element.style.zIndex = '';
+
+              // 그룹 드래그인 경우 모든 블록의 transform 제거
+              if (context.isGroupDrag) {
+                for (const blockId of context.selectedIds) {
+                  if (blockId === context.blockId) continue;
+                  const selectedBlock = this.blockManager.getBlockInstance(blockId);
+                  if (selectedBlock) {
+                    const selectedElement = selectedBlock.getElement();
+                    selectedElement.style.transform = '';
+                    selectedElement.style.zIndex = '';
+                  }
                 }
               }
             }
-
-            // 그룹 드래그인 경우와 단일 드래그를 구분해서 처리
-            const useTransition = !!this.rollbackCallback || !!this.rollbackGroupCallback;
+            // 🔧 애니메이션이 있는 경우에는 transform 제거를 지연
+            // Transform은 TransitionManager의 rollback 메서드에서 처리됨
 
             // 그룹 드래그인 경우 모든 선택된 블록도 FLIP 애니메이션으로 복원
             if (context.isGroupDrag && context.startGroupPositions) {
